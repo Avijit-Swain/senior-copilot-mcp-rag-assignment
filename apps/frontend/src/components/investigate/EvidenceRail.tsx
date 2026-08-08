@@ -48,7 +48,7 @@ export function EvidenceRail({
         >
           <Sigma size={14} />
           Evidence
-          {answer && <span className="rail__tab-count">{answer.citations.length}</span>}
+          {!!answer?.citations.length && <span className="rail__tab-count">{answer.citations.length}</span>}
         </button>
         <button
           type="button"
@@ -59,7 +59,7 @@ export function EvidenceRail({
         >
           <Route size={14} />
           MCP Trace
-          {answer && <span className="rail__tab-count">{answer.toolCalls.length}</span>}
+          {!!answer?.toolCalls.length && <span className="rail__tab-count">{answer.toolCalls.length}</span>}
         </button>
       </div>
 

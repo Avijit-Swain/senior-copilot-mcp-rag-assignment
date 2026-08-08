@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { FlaskConical } from 'lucide-react'
+import { FlaskConical, Wifi } from 'lucide-react'
 import { ChatPanel } from '../components/investigate/ChatPanel'
 import { EvidenceRail } from '../components/investigate/EvidenceRail'
 import { Drawer } from '../components/ui/Drawer'
@@ -7,6 +7,7 @@ import { Badge, Segmented } from '../components/ui/primitives'
 import { JsonView } from '../components/ui/JsonView'
 import type { AnswerBlock, ChatMessage, Citation } from '../lib/types'
 import { DOC_KIND_LABEL } from '../lib/format'
+import { askCopilot } from '../lib/api'
 import {
   DEGRADED_ANSWER,
   INITIAL_MESSAGES,
@@ -47,12 +48,13 @@ export function Investigate() {
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
   const [scenario, setScenario] = useState<Scenario>('success')
+  const [usingFallback, setUsingFallback] = useState(false)
   const [activeAnswer, setActiveAnswer] = useState<AnswerBlock | null>(null)
   const [openCitation, setOpenCitation] = useState<Citation | null>(null)
   const timer = useRef<number | null>(null)
 
   const submit = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const question = text.trim()
       if (!question || pending) return
 
@@ -62,9 +64,17 @@ export function Investigate() {
       ])
       setInput('')
       setPending(true)
+      setUsingFallback(false)
 
-      // Stand-in for the streaming orchestrator response.
-      timer.current = window.setTimeout(() => {
+      try {
+        const response = await askCopilot(question)
+        setActiveAnswer(response.answer)
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: 'assistant', createdAt: response.createdAt, answer: response.answer, state: 'complete' },
+        ])
+      } catch (error) {
+        setUsingFallback(true)
         if (scenario === 'error') {
           setActiveAnswer(null)
           setMessages((prev) => [
@@ -75,7 +85,9 @@ export function Investigate() {
               createdAt: new Date().toISOString(),
               state: 'error',
               errorText:
-                'search_assets failed with UPSTREAM_ERROR after 3 attempts (HTTP 503). The Alarm Management API is unreachable, so no asset could be resolved and the investigation was abandoned.',
+                error instanceof Error
+                  ? error.message
+                  : 'The backend is unavailable and the investigation could not be completed.',
             },
           ])
         } else {
@@ -86,8 +98,9 @@ export function Investigate() {
             { id: nextId(), role: 'assistant', createdAt: new Date().toISOString(), answer, state: 'complete' },
           ])
         }
+      } finally {
         setPending(false)
-      }, 1400)
+      }
     },
     [pending, scenario],
   )
@@ -97,6 +110,7 @@ export function Investigate() {
     setMessages([])
     setActiveAnswer(null)
     setPending(false)
+    setUsingFallback(false)
     setInput('')
   }
 
@@ -112,9 +126,14 @@ export function Investigate() {
           <div className="chat__toolbar">
             <FlaskConical size={13} className="subtle" />
             <span className="subtle" style={{ fontSize: 'var(--text-xs)' }}>
-              Placeholder responses — demo scenario
+              Live master orchestrator
             </span>
-            <span className="spacer">
+            <span className="spacer row" style={{ gap: 'var(--sp-2)' }}>
+              {usingFallback && (
+                <span className="subtle row" style={{ gap: 4, fontSize: 'var(--text-xs)' }}>
+                  <Wifi size={12} /> fallback demo
+                </span>
+              )}
               <Segmented value={scenario} options={SCENARIOS} onChange={setScenario} />
             </span>
           </div>

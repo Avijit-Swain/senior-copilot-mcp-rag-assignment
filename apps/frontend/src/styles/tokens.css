@@ -17,14 +17,14 @@
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
     'Liberation Mono', monospace;
 
-  --text-2xs: 0.6875rem;
-  --text-xs: 0.75rem;
-  --text-sm: 0.8125rem;
-  --text-base: 0.875rem;
-  --text-md: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.75rem;
+  --text-2xs: 0.75rem;
+  --text-xs: 0.8125rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
 
   /* Spacing ------------------------------------------------------------ */
   --sp-1: 0.25rem;
@@ -45,9 +45,9 @@
   --r-full: 999px;
 
   /* Layout ------------------------------------------------------------- */
-  --sidebar-w: 232px;
-  --topbar-h: 56px;
-  --rail-w: 420px;
+  --sidebar-w: 248px;
+  --topbar-h: 64px;
+  --rail-w: 456px;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur: 160ms;
@@ -70,8 +70,8 @@
   --border-strong: rgba(255, 255, 255, 0.16);
 
   --fg: #e8eaee;
-  --fg-muted: #9aa2af;
-  --fg-subtle: #6b7280;
+  --fg-muted: #b1b8c4;
+  --fg-subtle: #858e9c;
   --fg-inverse: #0a0c10;
 
   --accent: var(--abb-red);
