@@ -1,26 +1,43 @@
 """
-LangGraph agent: supervisor -> parallel retrieval tool nodes -> reduce.
+LangGraph ReAct agent: supervisor <-> parallel retrieval tool nodes.
 
     START
       |
       v
-  supervisor            decomposes a compound question into independent
-      |                 sub-queries, using a catalog of what the corpus holds
-      | Send(...) x N   map: one dispatch per sub-query, run in parallel
-      v
-  retrieval_tool        embed -> top 20 vectors -> dedupe to 3 whole documents
-      |                 -> single LLM call answering that sub-query from the
-      |                    entire document contents
-      v
-    reduce              combines sub-answers into one grounded answer
-      |
-      v
-     END
+  supervisor  <--------------------------+   reason: given the question and
+      |                                  |   everything observed so far, decide
+      |                                  |   whether to retrieve more or answer
+      +-- action=retrieve --+            |
+      |                     |            |
+      |          Send(...) x N (map)     |   act: one dispatch per sub-query,
+      |                     |            |        run in parallel
+      |                     v            |
+      |             retrieval_tool ------+   observe: results return to the
+      |                                      supervisor, not straight to an
+      +-- action=answer --> finalize         answer step
+                               |
+                               v
+                              END
+
+The loop is what makes this ReAct rather than a one-shot pipeline. The
+supervisor sees each round's observations — which sub-queries ran, whether the
+documents settled them, and what was found — and can dispatch follow-up
+sub-queries to fill a gap before committing to an answer.
+
+The loop is bounded in state, not by trusting the model: `retrieval_rounds` is
+capped at one initial dispatch plus MAX_RETRIES retries. Once spent, the
+supervisor is forced to answer. If nothing was resolved by then, the answer is
+an explicit "Answer not found" listing what was searched, rather than a model
+asked to write around an absence of evidence.
+
+Models: the supervisor reasons about decomposition and sufficiency and runs on
+the stronger model; the tool node reads documents and extracts, and runs on the
+cheaper one, once per sub-query.
 
 The tool node is one node, not two: retrieval and answering happen in the same
 step. There is no separate relevance filter — the answering model is given the
-whole documents and is responsible for saying when they do not contain an
-answer.
+whole documents and is responsible for saying when they do not settle a
+sub-query.
 """
 
 from __future__ import annotations
@@ -41,9 +58,15 @@ sys.path.insert(0, str(ROOT / "rag" / "retrieval"))
 
 from retriever import RetrievedDocument, catalog, search  # noqa: E402
 
-SUPERVISOR_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-ANSWER_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-MAX_SUBQUERIES = 4
+# Supervisor reasons about decomposition and sufficiency, so it runs on the
+# stronger model. The tool node reads documents and extracts, which the cheaper
+# model handles well and is called once per sub-query.
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "gpt-4.1")
+TOOL_MODEL = os.environ.get("TOOL_MODEL", "gpt-4o-mini")
+
+MAX_SUBQUERIES = 4          # per round
+MAX_RETRIES = 1             # retrieval rounds after the first; hard cap
+MAX_RETRIEVAL_ROUNDS = 1 + MAX_RETRIES
 
 
 # --------------------------------------------------------------------------
@@ -52,10 +75,15 @@ MAX_SUBQUERIES = 4
 
 class AgentState(TypedDict, total=False):
     question: str
-    subqueries: list[str]
+    subqueries: list[str]           # this round's dispatch
     plan_reason: str
-    # operator.add is the reduce step: parallel tool nodes each append.
+    action: str                     # "retrieve" | "answer"
+    round: int                      # supervisor turns taken
+    retrieval_rounds: int           # dispatches made; capped at MAX_RETRIEVAL_ROUNDS
+    exhausted: bool                 # retry budget spent without resolving
+    # Parallel tool nodes append; these accumulate across rounds.
     sub_answers: Annotated[list[dict], operator.add]
+    executed: Annotated[list[str], operator.add]
     answer: str
     citations: list[dict]
 
@@ -72,27 +100,60 @@ class ToolTask(TypedDict):
 
 SUPERVISOR_SYSTEM = """You are the supervisor of an alarm-investigation copilot.
 
-You decompose a user's question into independent sub-queries that can be
-answered in parallel by a document retrieval tool. You do not answer anything
-yourself.
+You direct a document retrieval tool. You never answer the user yourself. On
+each turn you either dispatch sub-queries to the tool, or declare that enough
+has been gathered to answer.
 
 The document corpus available to the retrieval tool:
 
 {catalog}
 
-Rules:
+Choosing an action:
+- "retrieve" — dispatch sub-queries. Always on the first turn. On later turns
+  ONLY when some part of the user's question is still unaddressed AND a
+  differently-phrased or narrower sub-query could plausibly find it.
+- "answer" — stop.
+
+STOPPING IS THE DEFAULT AFTER THE FIRST TURN. If every executed sub-query is
+marked RESOLVED and between them they address the whole question, you MUST
+choose "answer". Do not dispatch further sub-queries to be thorough, to
+double-check, or to gather more detail on something already resolved. Extra
+retrieval that covers ground already covered is a failure, not diligence.
+
+Writing sub-queries:
+- A sub-query is a QUESTION written in plain language, as an engineer would ask
+  it. Never write a document id, a document title, a catalog line, or a phrase
+  like "SOP-114 for ..." — the retrieval tool searches by meaning and cannot use
+  document references. Describe the information wanted, not where to find it.
 - Split the question only where it genuinely has separable parts. A question
   asking one thing produces exactly one sub-query.
-- Each sub-query must be self-contained and answerable on its own. Resolve
-  pronouns and carry over the asset or unit name into every sub-query.
+- Each sub-query must be self-contained. Resolve pronouns and carry the asset,
+  unit or site name into every sub-query.
 - Where a question asks whether two sources agree, emit one sub-query per
   source so they can be compared afterwards.
 - Do not invent parts the user did not ask about.
-- Produce at most {max_subqueries} sub-queries.
 - Phrase sub-queries the way the documents would describe the topic.
+- At most {max_subqueries} sub-queries per turn.
+
+Re-dispatching:
+- Never repeat a sub-query that has already been executed. They are listed
+  below.
+- If a sub-query came back unresolved because the corpus does not cover that
+  subject, do NOT rephrase and retry — the corpus genuinely lacks it. Choose
+  "answer" and let the gap be reported.
+- Only retry when the observation suggests the wording missed something the
+  corpus plausibly holds, based on the catalog above.
 
 Reply with JSON only:
-{{"reason": "<one line on how you split it>", "subqueries": ["...", "..."]}}"""
+{{"reason": "<one line>", "action": "retrieve"|"answer", "subqueries": ["..."]}}
+Use an empty subqueries list when the action is "answer"."""
+
+OBSERVATION_TEMPLATE = """Retrieval rounds used: {dispatched}. Remaining: {remaining}.
+If none remain, "retrieve" will be ignored and the answer produced from what
+you already have.
+
+Sub-queries already executed and what came back:
+{observations}"""
 
 
 def _catalog_text() -> str:
@@ -107,14 +168,57 @@ def _catalog_text() -> str:
     return "\n".join(lines)
 
 
+def _observations(state: AgentState) -> str:
+    parts = sorted(state.get("sub_answers", []), key=lambda s: s["index"])
+    if not parts:
+        return "(nothing retrieved yet — this is the first turn)"
+    lines = []
+    for p in parts:
+        status = "RESOLVED" if p["answered"] else "NOT RESOLVED"
+        docs = ", ".join(d["doc_id"] for d in p["documents"]) or "none"
+        lines.append(
+            f"- [{status}] {p['subquery']}\n"
+            f"    documents seen: {docs}\n"
+            f"    finding: {p['answer'][:220]}"
+        )
+    return "\n".join(lines)
+
+
 def supervisor(state: AgentState) -> dict:
+    """Reason step. Decides whether to act again or to answer."""
+    current_round = state.get("round", 0) + 1
+    dispatched = state.get("retrieval_rounds", 0)
+    resolved_any = any(p["answered"] for p in state.get("sub_answers", []))
+
+    # Hard cap in state, enforced in code rather than left to the model:
+    # one initial retrieval plus MAX_RETRIES retries, then the loop must end.
+    if dispatched >= MAX_RETRIEVAL_ROUNDS:
+        return {
+            "action": "answer",
+            "round": current_round,
+            "retrieval_rounds": dispatched,
+            "exhausted": not resolved_any,
+            "plan_reason": (
+                f"retry budget spent ({MAX_RETRIES} retry allowed) without resolving the question"
+                if not resolved_any
+                else f"retry budget spent ({MAX_RETRIES} retry allowed)"
+            ),
+            "subqueries": [],
+        }
+
     client = OpenAI()
     resp = client.chat.completions.create(
         model=SUPERVISOR_MODEL,
         messages=[
             {"role": "system", "content": SUPERVISOR_SYSTEM.format(
                 catalog=_catalog_text(), max_subqueries=MAX_SUBQUERIES)},
-            {"role": "user", "content": state["question"]},
+            {"role": "user", "content": (
+                f"USER QUESTION:\n{state['question']}\n\n"
+                + OBSERVATION_TEMPLATE.format(
+                    dispatched=dispatched,
+                    remaining=MAX_RETRIEVAL_ROUNDS - dispatched,
+                    observations=_observations(state))
+            )},
         ],
         response_format={"type": "json_object"},
         temperature=0,
@@ -124,20 +228,40 @@ def supervisor(state: AgentState) -> dict:
     except json.JSONDecodeError:
         data = {}
 
-    subqueries = [s for s in data.get("subqueries", []) if isinstance(s, str) and s.strip()]
-    if not subqueries:                       # never fan out to nothing
-        subqueries = [state["question"]]
+    already = set(state.get("executed", []))
+    subqueries = [
+        s for s in data.get("subqueries", [])
+        if isinstance(s, str) and s.strip() and s not in already
+    ][:MAX_SUBQUERIES]
+
+    action = str(data.get("action", "")).lower()
+    if current_round == 1 and not subqueries:
+        # First turn must retrieve something; fall back to the raw question.
+        action, subqueries = "retrieve", [state["question"]]
+    elif action == "retrieve" and not subqueries:
+        # Wanted to retrieve but every proposal was a repeat — stop instead.
+        action = "answer"
+    elif action not in ("retrieve", "answer"):
+        action = "answer" if state.get("sub_answers") else "retrieve"
 
     return {
-        "subqueries": subqueries[:MAX_SUBQUERIES],
+        "action": action,
+        "round": current_round,
+        "retrieval_rounds": dispatched + (1 if action == "retrieve" else 0),
+        "exhausted": action == "answer" and not resolved_any,
+        "subqueries": subqueries if action == "retrieve" else [],
         "plan_reason": str(data.get("reason", "")),
     }
 
 
-def fan_out(state: AgentState) -> list[Send]:
-    """Map step. One parallel tool invocation per sub-query."""
+def route(state: AgentState) -> list[Send] | str:
+    """Act step, or exit the loop."""
+    if state.get("action") != "retrieve" or not state.get("subqueries"):
+        return "finalize"
+
+    offset = len(state.get("sub_answers", []))
     return [
-        Send("retrieval_tool", ToolTask(question=state["question"], subquery=sq, index=i))
+        Send("retrieval_tool", ToolTask(question=state["question"], subquery=sq, index=offset + i))
         for i, sq in enumerate(state["subqueries"])
     ]
 
@@ -237,16 +361,16 @@ def retrieval_tool(task: ToolTask) -> dict:
     docs: list[RetrievedDocument] = search(task["subquery"])
 
     if not docs:
-        return {"sub_answers": [{
+        return {"executed": [task["subquery"]], "sub_answers": [{
             "index": task["index"], "subquery": task["subquery"], "answered": False,
             "answer": "No documents were retrieved for this sub-query.",
-            "citations": [], "documents": [], "injection_noted": "",
+            "citations": [], "dropped_citations": [], "documents": [], "injection_noted": "",
         }]}
 
     context = "\n\n".join(d.as_context() for d in docs)
     client = OpenAI()
     resp = client.chat.completions.create(
-        model=ANSWER_MODEL,
+        model=TOOL_MODEL,
         messages=[
             {"role": "system", "content": TOOL_SYSTEM},
             {"role": "user", "content": f"QUESTION:\n{task['subquery']}\n\nDOCUMENTS:\n{context}"},
@@ -261,7 +385,7 @@ def retrieval_tool(task: ToolTask) -> dict:
 
     citations, dropped = resolve_citations(data.get("citations", []), docs)
 
-    return {"sub_answers": [{
+    return {"executed": [task["subquery"]], "sub_answers": [{
         "index": task["index"],
         "subquery": task["subquery"],
         # Named `documents_resolve_question` in the schema on purpose: an
@@ -301,6 +425,22 @@ Reply with plain text."""
 def reduce_answers(state: AgentState) -> dict:
     parts = sorted(state.get("sub_answers", []), key=lambda s: s["index"])
 
+    # Nothing was resolved and the retry budget is spent: say so plainly rather
+    # than asking a model to dress up an absence of evidence.
+    if parts and not any(p["answered"] for p in parts):
+        tried = "\n".join(f"  - {p['subquery']}" for p in parts)
+        return {
+            "answer": (
+                "Answer not found. The document corpus does not cover this question.\n\n"
+                f"Searched with {len(parts)} quer"
+                f"{'y' if len(parts) == 1 else 'ies'} across "
+                f"{state.get('retrieval_rounds', 0)} retrieval round"
+                f"{'' if state.get('retrieval_rounds', 0) == 1 else 's'}"
+                f" ({MAX_RETRIES} retry allowed):\n{tried}"
+            ),
+            "citations": [],
+        }
+
     if len(parts) == 1 and parts[0]["answered"]:
         return {"answer": parts[0]["answer"], "citations": parts[0]["citations"]}
 
@@ -311,7 +451,7 @@ def reduce_answers(state: AgentState) -> dict:
     )
     client = OpenAI()
     resp = client.chat.completions.create(
-        model=ANSWER_MODEL,
+        model=SUPERVISOR_MODEL,
         messages=[
             {"role": "system", "content": REDUCE_SYSTEM},
             {"role": "user", "content": f"ORIGINAL QUESTION:\n{state['question']}\n\n{blob}"},
@@ -338,12 +478,14 @@ def build_graph():
     g = StateGraph(AgentState)
     g.add_node("supervisor", supervisor)
     g.add_node("retrieval_tool", retrieval_tool)
-    g.add_node("reduce", reduce_answers)
+    g.add_node("finalize", reduce_answers)
 
     g.add_edge(START, "supervisor")
-    g.add_conditional_edges("supervisor", fan_out, ["retrieval_tool"])
-    g.add_edge("retrieval_tool", "reduce")
-    g.add_edge("reduce", END)
+    # Reason -> act, or exit the loop.
+    g.add_conditional_edges("supervisor", route, ["retrieval_tool", "finalize"])
+    # Observe: results go back to the supervisor, closing the ReAct loop.
+    g.add_edge("retrieval_tool", "supervisor")
+    g.add_edge("finalize", END)
     return g.compile()
 
 

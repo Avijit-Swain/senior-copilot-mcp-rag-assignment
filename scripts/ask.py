@@ -36,14 +36,18 @@ def show(question: str) -> None:
 
     state = ask(question)
 
-    print(f"\nSUPERVISOR — {len(state['subqueries'])} sub-quer"
-          f"{'y' if len(state['subqueries']) == 1 else 'ies'}")
+    print(f"\nREACT LOOP — {state.get('round', 0)} supervisor turn(s), "
+          f"{state.get('retrieval_rounds', 0)} retrieval round(s), "
+          f"{len(state.get('sub_answers', []))} tool call(s)"
+          + ("   [retry budget exhausted, nothing resolved]" if state.get("exhausted") else ""))
     if state.get("plan_reason"):
-        print(f"  reason: {state['plan_reason']}")
-    for i, sq in enumerate(state["subqueries"], 1):
+        print(f"  final decision: {state['plan_reason']}")
+
+    print("\nSUB-QUERIES EXECUTED")
+    for i, sq in enumerate(state.get("executed", []), 1):
         print(f"  {i}. {sq}")
 
-    print("\nTOOL NODES (parallel)")
+    print("\nTOOL NODES (parallel within each round)")
     for part in sorted(state["sub_answers"], key=lambda s: s["index"]):
         docs = "  ".join(f"{d['doc_id']}({d['score']})" for d in part["documents"])
         print(f"  [{part['index'] + 1}] answered={part['answered']}   retrieved: {docs}")
