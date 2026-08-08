@@ -7,25 +7,30 @@ natural-language question, resolves the asset, chains MCP tools against an Alarm
 Management API simulator, retrieves matching site documentation through RAG, and
 answers with citations and a full tool-execution trace.
 
-> **Status: in progress.** The GUI shell is complete and runnable. The API
-> simulator, MCP server, RAG pipeline and orchestration layer are not built yet.
-> See [Build status](#build-status).
+> **Status: in progress.** The GUI shell, the RAG corpus, the retrieval index and
+> a LangGraph ReAct agent over it are built and runnable. The API simulator, MCP
+> server and MCP client integration are not. See [Build status](#build-status).
+>
+> **[`CONTEXT.md`](CONTEXT.md) is the full handoff brief** — what the assignment
+> demands, what exists, why each design decision was made, and what remains.
 
 ## Repository layout
 
 ```
 .
+├── CONTEXT.md             Full handoff brief — read this first
 ├── assignment/            Assignment brief, evaluation guidelines and the
 │                          reference Postman collections, exactly as supplied.
 │                          Input material — not part of the deliverable.
 ├── apps/
-│   └── frontend/          React + TypeScript GUI          ✅ shell complete
+│   ├── frontend/          React + TypeScript GUI          ✅ shell complete
+│   └── backend/agent/     LangGraph ReAct agent           ✅ over documents
+├── rag/                   Corpus, ingestion, retrieval    ✅
+├── scripts/               Corpus generation, agent CLI    ✅
 ├── docs/                  Architecture, MCP tool catalog, RAG design       ⬜
 ├── mcp-servers/           Candidate-developed MCP server(s)                ⬜
-├── rag/                   Ingestion, retrieval, document corpus            ⬜
 ├── connectors/            Alarm Management API client                      ⬜
-├── tests/                 unit / integration / e2e                         ⬜
-└── scripts/                                                                ⬜
+└── tests/                 unit / integration / e2e                         ⬜
 ```
 
 This follows the structure in `assignment/Submission_and_Evaluation_Guidelines.md`
@@ -37,26 +42,43 @@ permit equivalent structures when documented.
 
 | Component | State |
 | --- | --- |
-| GUI (React) | Shell complete — all required screens, placeholder data |
-| Alarm Management API simulator | Not started |
-| MCP server | Not started |
-| MCP client / orchestration | Not started |
-| RAG ingestion and retrieval | Not started |
-| Tests | Not started |
-| Docker packaging | Not started |
-| CI | Not started |
+| GUI (React) | ✅ Shell complete — all required screens, placeholder data |
+| RAG document corpus | ✅ 8 PDFs, text extraction verified |
+| RAG index and retrieval | ✅ 52 vectors → 8 documents, precision@1 94% |
+| LangGraph ReAct agent | ✅ Supervisor + parallel retrieval tool, retry-capped |
+| Alarm Management API simulator | ⬜ Not started |
+| MCP server | ⬜ Not started |
+| MCP client / orchestration | ⬜ Not started |
+| Tests | ⬜ Not started |
+| Docker packaging | ⬜ Not started |
+| CI | ⬜ Not started |
 
 ## Running what exists
 
+**Document copilot** — ask a question, watch the agent decompose, retrieve and cite:
+
 ```bash
-cd apps/frontend
-npm install
-npm run dev        # http://localhost:5173
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env                                  # add OPENAI_API_KEY
+.venv/bin/python rag/ingestion/build_index.py --reset
+.venv/bin/python scripts/ask.py --demo
 ```
 
-See [`apps/frontend/README.md`](apps/frontend/README.md) for the screen
-inventory, the demo scenario switch, and the map of which placeholder feeds
-which panel.
+**Retrieval evaluation:**
+
+```bash
+.venv/bin/python rag/tests/eval_retrieval.py
+```
+
+**GUI:**
+
+```bash
+cd apps/frontend && npm install && npm run dev        # http://localhost:5173
+```
+
+See [`rag/README.md`](rag/README.md) for the corpus design and
+[`apps/frontend/README.md`](apps/frontend/README.md) for the screen inventory
+and the map of which placeholder feeds which panel.
 
 ## Reference material
 
