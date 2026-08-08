@@ -16,3 +16,6 @@ coverage/
 .pytest_cache/
 .ruff_cache/
 *.tsbuildinfo
+
+# Vector index is a build artifact — rebuild with rag/ingestion/build_index.py
+rag/index/
