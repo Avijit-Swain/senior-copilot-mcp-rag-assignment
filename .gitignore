@@ -19,3 +19,9 @@ coverage/
 
 # Vector index is a build artifact — rebuild with rag/ingestion/build_index.py
 rag/index/
+
+# Local simulator databases are generated from connectors/alarm_api/*.sql
+*.sqlite3
+
+# Per-developer tool settings
+.claude/settings.local.json

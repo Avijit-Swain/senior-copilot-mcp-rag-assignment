@@ -229,7 +229,9 @@ function AnswerBody({ answer, onCitation }: { answer: AnswerBlock; onCitation: (
 
       <div className="msg__footer">
         <Badge tone="neutral">{answer.toolCalls.length} MCP calls</Badge>
-        <Badge tone="neutral">{answer.citations.length} sources</Badge>
+        <Badge tone={answer.citations.length === 0 ? 'warn' : 'neutral'}>
+          {answer.citations.length} sources
+        </Badge>
         {answer.degraded ? (
           <Badge tone="warn">degraded</Badge>
         ) : answer.lowConfidence ? (

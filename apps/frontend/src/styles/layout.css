@@ -32,20 +32,27 @@
 .sidebar__brand-text {
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
 }
 
 .sidebar__brand-title {
   font-size: var(--text-sm);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
+/* Tracking plus uppercase makes this the widest line in the lockup; it has to
+   stay on one row or it collides with the logo baseline. */
 .sidebar__brand-sub {
   font-size: var(--text-2xs);
+  line-height: 1.2;
   color: var(--fg-subtle);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .sidebar__nav {
@@ -72,7 +79,8 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
+  padding: 0 var(--sp-3);
+  min-height: 40px;
   border-radius: var(--r-md);
   color: var(--fg-muted);
   font-size: var(--text-base);
@@ -144,7 +152,7 @@
   align-items: center;
   gap: var(--sp-4);
   height: var(--topbar-h);
-  padding: 0 var(--sp-5);
+  padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
   flex-shrink: 0;
@@ -155,13 +163,13 @@
 }
 
 .topbar__title {
-  font-size: var(--text-md);
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: 700;
 }
 
 .topbar__sub {
-  font-size: var(--text-xs);
-  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
 }
 
 .topbar__actions {
@@ -243,7 +251,7 @@
   }
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1150px) {
   .shell {
     grid-template-columns: 64px minmax(0, 1fr);
   }
@@ -264,7 +272,113 @@
   .invest__rail {
     border-left: none;
     border-top: 1px solid var(--border);
-    max-height: 45%;
+    max-height: 42%;
+  }
+}
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar__brand {
+    height: 48px;
+    padding: 0 var(--sp-3);
+  }
+
+  .sidebar__brand-text {
+    display: flex;
+  }
+
+  .sidebar__brand-title {
+    font-size: var(--text-sm);
+  }
+
+  .sidebar__brand-sub,
+  .sidebar__label,
+  .sidebar__foot {
+    display: none;
+  }
+
+  .sidebar__nav {
+    flex: none;
+    flex-direction: row;
+    gap: var(--sp-1);
+    padding: 0 var(--sp-2) var(--sp-2);
+    overflow-x: auto;
+  }
+
+  .navitem {
+    min-height: 38px;
+    min-width: 42px;
+    padding: 0 var(--sp-3);
+    justify-content: center;
+  }
+
+  .navitem span {
+    display: inline;
+    font-size: var(--text-sm);
+  }
+
+  .navitem__count {
+    display: none;
+  }
+
+  .navitem.is-active::before {
+    left: var(--sp-2);
+    right: var(--sp-2);
+    top: auto;
+    bottom: -2px;
+    width: auto;
+    height: 2px;
+    translate: none;
+    border-radius: var(--r-full);
+  }
+
+  .topbar {
+    min-height: 54px;
+    height: auto;
+    align-items: flex-start;
+    padding: var(--sp-3);
+  }
+
+  .topbar__title {
+    font-size: var(--text-base);
+  }
+
+  .topbar__sub {
+    display: none;
+  }
+
+  .topbar__actions .chip {
+    display: none;
+  }
+
+  .page {
+    overflow-y: auto;
+  }
+
+  .invest {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .invest > :first-child {
+    min-height: min(620px, calc(100vh - 96px));
+  }
+
+  .invest__rail {
+    max-height: none;
+    min-height: 420px;
   }
 }
 
@@ -272,7 +386,12 @@
   .page--scroll {
     padding: var(--sp-4);
   }
-  .topbar {
-    padding: 0 var(--sp-3);
+
+  .navitem span {
+    display: none;
+  }
+
+  .sidebar__nav {
+    justify-content: space-between;
   }
 }
