@@ -9,9 +9,9 @@ deduplicated by document (keeping each document's best-scoring representation)
 before top-k is applied. TOP_K is therefore a count of distinct documents, not
 of vectors.
 
-The question set deliberately includes queries the corpus cannot answer. Those
-must fall below SCORE_FLOOR so low-confidence handling can be exercised
-honestly rather than by returning a weak match.
+The question set includes queries the corpus cannot answer; rejecting those is
+the agent's job, not this script's — see the note it prints at the end.
+
 """
 
 from __future__ import annotations
@@ -26,13 +26,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "rag" / "retrieval"))
-from relevance_gate import gate  # noqa: E402
-
 EMBED_MODEL = "text-embedding-3-small"
 COLLECTION = "alarm_documents"
 TOP_K = 3
-SCORE_FLOOR = 0.35          # cosine similarity below this counts as no match
 OVERFETCH = 20              # vectors pulled before dedup to documents
 
 # (question, expected_doc_id or None for "corpus cannot answer this")
@@ -133,35 +129,17 @@ def main() -> int:
     print(f"precision@1 = {at1}/{n} ({at1/n:.0%})     recall@{TOP_K} = {at3}/{n} ({at3/n:.0%})")
 
     print("\n" + "=" * 100)
-    print("RELEVANCE GATE — vector scores cannot separate answerable from unanswerable")
-    print("(measured overlap: answerable top-1 0.53-0.85, unanswerable 0.45-0.59)")
+    print("UNANSWERABLE QUESTIONS — vector score alone cannot reject these")
     print("=" * 100)
-    print(f"{'':<2} {'TOP1':>5}  {'VECTOR TOP-3':<34} {'SURVIVES GATE':<22} EXPECTED")
-    print("-" * 100)
-
-    gate_ok = 0
-    for question, expected in QUESTIONS:
+    for question, _ in unanswerable:
         hits = retrieve(collection, client, question)
-        kept = gate(client, question, hits)
-        kept_ids = [h["doc_id"] for h in kept]
-
-        if expected:
-            correct = expected in kept_ids
-        else:
-            correct = not kept_ids
-        gate_ok += correct
-
-        print(f"{'✓' if correct else '✗':<2} {hits[0]['score']:>5.2f}  "
-              f"{' '.join(h['doc_id'] for h in hits):<34} "
-              f"{(' '.join(kept_ids) or '(none — low confidence)'):<22} "
-              f"{expected or 'NONE'}")
-        if not correct:
-            print(f"     └ q: {question}")
-
+        print(f"   top={hits[0]['score']:.2f}  [{hits[0]['doc_id']}]  {question}")
     print("-" * 100)
-    print(f"gate correct = {gate_ok}/{len(QUESTIONS)} ({gate_ok/len(QUESTIONS):.0%})")
+    print("Vector scores overlap with answerable questions (0.53-0.85 vs 0.45-0.59),")
+    print("so rejection is decided by the agent's answering step, not by a threshold.")
+    print("See scripts/ask.py for end-to-end behaviour.")
 
-    return 0 if (at3 == n and gate_ok == len(QUESTIONS)) else 2
+    return 0 if at3 == n else 2
 
 
 if __name__ == "__main__":

@@ -7,9 +7,13 @@ reportlab==4.4.5
 # PDF text extraction for the RAG ingestion pipeline
 pdfplumber==0.11.10
 
-# Embeddings, relevance gate and answer synthesis
+# Embeddings and answer synthesis
 openai==2.53.0
 python-dotenv==1.2.2
 
 # Vector store (embedded, persists to rag/index/)
 chromadb==1.5.9
+
+# Agent orchestration
+langgraph==1.2.10
+langchain-core==1.5.3
