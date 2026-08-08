@@ -1,0 +1,8 @@
+# Python dependencies. Install into a virtualenv:
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+# Corpus generation (scripts/generate_corpus.py)
+reportlab==4.4.5
+
+# PDF text extraction for the RAG ingestion pipeline
+pdfplumber==0.11.10
