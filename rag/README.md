@@ -9,16 +9,42 @@ to look and behave like controlled site documentation: front matter, numbered
 sections, warning callouts, and a running header and footer so page-based
 citation locators such as `SOP-114 §3.2, p.2` are meaningful.
 
+Documents are filed by type, so the four types the use case requires are
+visible without opening anything:
+
+```
+rag/documents/
+├── operating-procedures/          ← required by §4
+│   ├── SOP-114_boiler-feed-pump-low-suction-pressure.pdf
+│   └── SOP-220_compressor-discharge-pressure-high.pdf
+├── maintenance-manuals/           ← required by §4
+│   └── MM-207_centrifugal-pump-maintenance.pdf
+├── troubleshooting-guides/        ← required by §4
+│   ├── TG-051_cavitation-and-npsh.pdf
+│   └── TG-088_motor-trip-electrical-fault.pdf
+├── safety-instructions/           ← required by §4
+│   └── SI-009_isolation-of-rotating-equipment.pdf
+├── alarm-philosophy/              ← §2.3 optional type
+│   └── AP-001_alarm-philosophy-rationalisation.pdf
+└── knowledge-articles/            ← §2.3 optional type
+    └── KB-3312_recurring-pump-alarms.pdf
+```
+
 | ID | Title | Type | Pages |
 | --- | --- | --- | ---: |
 | `SOP-114` | Boiler Feed Pump — Low Suction Pressure Response | Operating procedure | 3 |
+| `SOP-220` | Compressor — Discharge Pressure High Response | Operating procedure | 2 |
 | `MM-207` | Centrifugal Pump Maintenance Manual | Maintenance manual | 3 |
 | `TG-051` | Cavitation and NPSH Troubleshooting Guide | Troubleshooting guide | 3 |
+| `TG-088` | Motor Trip and Electrical Fault Investigation | Troubleshooting guide | 2 |
 | `SI-009` | Isolation of Rotating Equipment | Safety instruction | 2 |
 | `AP-001` | Site Alarm Philosophy and Rationalisation Standard | Alarm philosophy | 2 |
-| `TG-088` | Motor Trip and Electrical Fault Investigation | Troubleshooting guide | 2 |
-| `SOP-220` | Compressor — Discharge Pressure High Response | Operating procedure | 2 |
 | `KB-3312` | Recurring Pump Alarms After Strainer Changeover | Service knowledge article | 2 |
+
+The document ID prefix is its type: `SOP` operating procedure, `MM` maintenance
+manual, `TG` troubleshooting guide, `SI` safety instruction, `AP` alarm
+philosophy, `KB` knowledge-base article. Citations use the short ID alone —
+`SOP-114 §3.2, p.2`.
 
 Each PDF carries embedded metadata — title, author, subject (document type) and
 keywords (tags) — so ingestion captures document metadata from the file itself

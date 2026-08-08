@@ -39,7 +39,7 @@ from reportlab.platypus import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus_content import CORPUS  # noqa: E402
+from corpus_content import CORPUS, output_path  # noqa: E402
 
 ACCENT = colors.HexColor("#1F3A5F")
 RULE = colors.HexColor("#B8C2CC")
@@ -252,7 +252,8 @@ def render_blocks(spec: dict, st: dict) -> list:
 
 
 def generate(spec: dict, out_dir: Path, styles: dict) -> Path:
-    path = out_dir / f"{spec['doc_id']}.pdf"
+    path = out_dir / output_path(spec)
+    path.parent.mkdir(parents=True, exist_ok=True)
     doc = ControlledDocTemplate(str(path), spec)
     doc.build(front_matter(spec, styles) + render_blocks(spec, styles))
     return path
@@ -271,11 +272,15 @@ def main() -> int:
     styles = build_styles()
 
     print(f"Generating {len(CORPUS)} documents into {out_dir}/\n")
-    for spec in CORPUS:
+    last_folder = None
+    for spec in sorted(CORPUS, key=output_path):
         path = generate(spec, out_dir, styles)
-        flag = "  [prompt-injection fixture]" if spec.get("is_injection_fixture") else ""
-        size_kb = path.stat().st_size / 1024
-        print(f"  {spec['doc_id']:<9} {size_kb:6.1f} KB  {spec['title']}{flag}")
+        folder = path.parent.name
+        if folder != last_folder:
+            print(f"  {folder}/")
+            last_folder = folder
+        flag = "   [prompt-injection fixture]" if spec.get("is_injection_fixture") else ""
+        print(f"    {path.name:<52} {path.stat().st_size / 1024:5.1f} KB{flag}")
 
     print(f"\nDone. {len(CORPUS)} PDFs written.")
     return 0

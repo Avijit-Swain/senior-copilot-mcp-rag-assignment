@@ -28,6 +28,7 @@ Block grammar
 
 SOP_114 = {
     "doc_id": "SOP-114",
+    "slug": "boiler-feed-pump-low-suction-pressure",
     "title": "Boiler Feed Pump — Low Suction Pressure Response",
     "kind": "operating-procedure",
     "revision": "Rev 4.2",
@@ -138,6 +139,7 @@ SOP_114 = {
 
 MM_207 = {
     "doc_id": "MM-207",
+    "slug": "centrifugal-pump-maintenance",
     "title": "Centrifugal Pump Maintenance Manual",
     "kind": "maintenance-manual",
     "revision": "Rev 9.0",
@@ -223,6 +225,7 @@ MM_207 = {
 
 TG_051 = {
     "doc_id": "TG-051",
+    "slug": "cavitation-and-npsh",
     "title": "Cavitation and NPSH Troubleshooting Guide",
     "kind": "troubleshooting-guide",
     "revision": "Rev 2.1",
@@ -304,6 +307,7 @@ TG_051 = {
 
 SI_009 = {
     "doc_id": "SI-009",
+    "slug": "isolation-of-rotating-equipment",
     "title": "Safety Instruction — Isolation of Rotating Equipment",
     "kind": "safety-instruction",
     "revision": "Rev 6.0",
@@ -360,6 +364,7 @@ SI_009 = {
 
 AP_001 = {
     "doc_id": "AP-001",
+    "slug": "alarm-philosophy-rationalisation",
     "title": "Site Alarm Philosophy and Rationalisation Standard",
     "kind": "alarm-philosophy",
     "revision": "Rev 3.3",
@@ -439,6 +444,7 @@ AP_001 = {
 
 TG_088 = {
     "doc_id": "TG-088",
+    "slug": "motor-trip-electrical-fault",
     "title": "Motor Trip and Electrical Fault Investigation",
     "kind": "troubleshooting-guide",
     "revision": "Rev 1.4",
@@ -497,6 +503,7 @@ TG_088 = {
 
 SOP_220 = {
     "doc_id": "SOP-220",
+    "slug": "compressor-discharge-pressure-high",
     "title": "Compressor — Discharge Pressure High Response",
     "kind": "operating-procedure",
     "revision": "Rev 2.0",
@@ -550,6 +557,7 @@ SOP_220 = {
 
 KB_3312 = {
     "doc_id": "KB-3312",
+    "slug": "recurring-pump-alarms",
     "title": "Service Knowledge Article — Recurring Pump Alarms After Strainer Changeover",
     "kind": "service-knowledge-article",
     "revision": "Rev 1.1",
@@ -600,6 +608,23 @@ KB_3312 = {
 }
 
 CORPUS = [SOP_114, MM_207, TG_051, SI_009, AP_001, TG_088, SOP_220, KB_3312]
+
+# Document type -> corpus subdirectory. The four types named for this use case
+# in Assignment_Use_Case.md §4 map to the first four entries; the remaining two
+# are drawn from the broader list in §2.3.
+KIND_FOLDER = {
+    "operating-procedure": "operating-procedures",
+    "maintenance-manual": "maintenance-manuals",
+    "troubleshooting-guide": "troubleshooting-guides",
+    "safety-instruction": "safety-instructions",
+    "alarm-philosophy": "alarm-philosophy",
+    "service-knowledge-article": "knowledge-articles",
+}
+
+
+def output_path(spec: dict) -> str:
+    """Relative path of a document within the corpus root."""
+    return f"{KIND_FOLDER[spec['kind']]}/{spec['doc_id']}_{spec['slug']}.pdf"
 
 # --------------------------------------------------------------------------
 
