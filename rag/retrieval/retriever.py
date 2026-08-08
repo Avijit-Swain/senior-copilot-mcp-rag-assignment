@@ -44,6 +44,16 @@ class RetrievedDocument:
     matched_representation: str
     text: str            # the entire document, not the representation
 
+    def section_map(self) -> dict[str, dict]:
+        """{"3.2": {"title": "Suction-Side Checks", "page": 2}, ...} from metadata."""
+        out: dict[str, dict] = {}
+        for entry in self.sections.split("; "):
+            if not entry:
+                continue
+            number, title, page = entry.split("|")
+            out[number] = {"title": title, "page": int(page.lstrip("p"))}
+        return out
+
     def as_context(self) -> str:
         """Rendered for the answer prompt, delimited so content stays data."""
         return (

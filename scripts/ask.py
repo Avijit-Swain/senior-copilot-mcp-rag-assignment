@@ -47,6 +47,9 @@ def show(question: str) -> None:
     for part in sorted(state["sub_answers"], key=lambda s: s["index"]):
         docs = "  ".join(f"{d['doc_id']}({d['score']})" for d in part["documents"])
         print(f"  [{part['index'] + 1}] answered={part['answered']}   retrieved: {docs}")
+        if part.get("dropped_citations"):
+            for d in part["dropped_citations"]:
+                print(f"      citation dropped: {d.get('doc_id')} §{d.get('section')} — {d['reason']}")
         if part.get("injection_noted"):
             print(f"      injection ignored: {part['injection_noted'][:80]}")
 
@@ -57,7 +60,10 @@ def show(question: str) -> None:
     if state.get("citations"):
         print("\nCITATIONS")
         for c in state["citations"]:
-            print(f"  {c.get('doc_id')} §{c.get('section')} p.{c.get('page')} — \"{c.get('quote','')}\"")
+            print(f"  {c['doc_id']} §{c['section']} {c['section_title']!r} p.{c['page']}  "
+                  f"[{c['revision']}]")
+            print(f"      \"{c.get('quote','')}\"")
+            print(f"      {c['source_path']}")
     print()
 
 

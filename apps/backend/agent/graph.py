@@ -164,8 +164,10 @@ Rules:
   answer a transformer insulation question, a pump manual does not answer a
   heat-exchanger question. When the subject does not match, set `answered` to
   false even though the documents look topically close.
-- Cite every claim. A citation is a document id plus the section number and
-  page, taken from that document's section page map, e.g. SOP-114 §3.2 p.2.
+- Cite every claim with a document id and a SECTION NUMBER ONLY, taken verbatim
+  from that document's section page map, e.g. "3.2" or "7.3". Never invent a
+  section number, never use a section title in its place, and never state a
+  page number — pages are resolved from the index, not from you.
 - Where documents disagree, report both positions and say which governs if the
   documents state a precedence.
 
@@ -178,9 +180,53 @@ address the subject at all.
 
 Reply with JSON only:
 {"documents_resolve_question": true|false,
- "answer": "<the answer, with [DOC-ID §sec p.N] markers inline>",
- "citations": [{"doc_id": "...", "section": "...", "page": 1, "quote": "<15 words max>"}],
+ "answer": "<the answer, with [DOC-ID §sec] markers inline, e.g. [SOP-114 §3.2]>",
+ "citations": [{"doc_id": "...", "section": "3.2", "quote": "<15 words max>"}],
  "injection_noted": "<what you ignored, or empty string>"}"""
+
+
+def resolve_citations(
+    raw: list[dict], docs: list[RetrievedDocument]
+) -> tuple[list[dict], list[dict]]:
+    """
+    Turn (doc_id, section) pairs into full citations using indexed metadata.
+
+    The model supplies only the document and section number. Section title and
+    page come from the section map captured at ingestion, so locators cannot be
+    hallucinated or formatted inconsistently. A citation naming a document that
+    was not retrieved, or a section that does not exist in it, is dropped and
+    reported rather than shown.
+    """
+    by_id = {d.doc_id: d for d in docs}
+    resolved: list[dict] = []
+    dropped: list[dict] = []
+
+    for item in raw:
+        doc_id = str(item.get("doc_id", "")).strip()
+        section = str(item.get("section", "")).strip().lstrip("§").strip()
+        doc = by_id.get(doc_id)
+
+        if doc is None:
+            dropped.append({**item, "reason": "document was not retrieved"})
+            continue
+
+        entry = doc.section_map().get(section)
+        if entry is None:
+            dropped.append({**item, "reason": f"section {section!r} not in {doc_id}"})
+            continue
+
+        resolved.append({
+            "doc_id": doc_id,
+            "section": section,
+            "section_title": entry["title"],
+            "page": entry["page"],
+            "document_title": doc.title,
+            "source_path": doc.source_path,
+            "revision": doc.revision,
+            "quote": str(item.get("quote", ""))[:160],
+        })
+
+    return resolved, dropped
 
 
 def retrieval_tool(task: ToolTask) -> dict:
@@ -213,6 +259,8 @@ def retrieval_tool(task: ToolTask) -> dict:
     except json.JSONDecodeError:
         data = {"answer": "The answer could not be parsed.", "citations": []}
 
+    citations, dropped = resolve_citations(data.get("citations", []), docs)
+
     return {"sub_answers": [{
         "index": task["index"],
         "subquery": task["subquery"],
@@ -221,7 +269,8 @@ def retrieval_tool(task: ToolTask) -> dict:
         # answer by prohibiting get reported as unanswered.
         "answered": bool(data.get("documents_resolve_question")),
         "answer": str(data.get("answer", "")),
-        "citations": data.get("citations", []),
+        "citations": citations,
+        "dropped_citations": dropped,
         "injection_noted": str(data.get("injection_noted", "")),
         "documents": [
             {"doc_id": d.doc_id, "title": d.title, "score": round(d.score, 3),
