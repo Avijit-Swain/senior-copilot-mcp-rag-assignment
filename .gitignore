@@ -24,4 +24,4 @@ rag/index/
 *.sqlite3
 
 # Per-developer tool settings
-.claude/settings.local.json
+.claude/

@@ -1,21 +1,24 @@
 # Known Limitations
 
-This repository implements the core MCP-plus-RAG copilot workflow, but several
-submission hardening items remain.
+This repository implements the core MCP-plus-RAG copilot workflow. The remaining
+items are submission polish and environment-dependent hardening rather than
+missing core architecture.
 
 ## Packaging
 
-- No `Dockerfile` is included yet.
-- No `docker-compose.yml` is included yet.
-- There is no single `make up` or equivalent command.
-
-The current startup path is local Python plus Vite, documented in `README.md`.
+- `Dockerfile`, `docker-compose.yml` and `Makefile` are included.
+- `docker compose config` validates the compose configuration.
+- Full image build/runtime verification requires a running local Docker daemon.
+- If `rag/index/` is not present, compose startup requires `OPENAI_API_KEY` so
+  the backend can build the vector index.
 
 ## Continuous Integration
 
-- No GitHub Actions workflow is included yet.
-- Validation has been run locally through pytest, TypeScript typecheck and Vite
-  build.
+- GitHub Actions workflow is included in `.github/workflows/ci.yml`.
+- CI runs backend/MCP/orchestration tests, frontend typecheck/build and compose
+  config validation.
+- RAG retrieval evaluation is optional because it needs an API key for embedding
+  calls.
 
 ## Demo Artifacts
 

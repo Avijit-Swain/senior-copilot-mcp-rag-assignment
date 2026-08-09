@@ -36,29 +36,36 @@ with citations and MCP traceability.
 | Unstructured RAG agent | LangGraph document agent over Chroma retrieval |
 | Master orchestrator | LangGraph planner with parallel and sequential dispatch |
 | RAG corpus/index | 8 synthetic PDFs, Chroma index, document deduplication and relevance gate |
-| Tests | Unit and integration tests for API, MCP client, orchestration and backend flows |
-| Packaging/CI/demo | Not included yet; see `docs/known-limitations.md` |
+| Tests | Unit, integration and E2E tests for API, MCP client, orchestration, backend flows and acceptance proof |
+| E2E acceptance proof | Automated BFP-101 acceptance test and evidence doc included |
+| Packaging | Dockerfile, Docker Compose and Makefile included |
+| CI | GitHub Actions workflow included |
+| Demo video | Pending outside the repository |
 
 ## Repository Layout
 
 ```text
 .
+├── .github/workflows/       CI for backend, frontend, packaging and optional RAG eval
 ├── assignment/              Supplied assignment brief and Postman collections
 ├── apps/
 │   ├── backend/             Copilot API, LangGraph agents, Alarm API simulator
 │   └── frontend/            React + TypeScript GUI
 ├── connectors/alarm_api/    SQL schema and seed source of truth
 ├── docs/                    Architecture, MCP, RAG, API and decision docs
+├── Dockerfile               Multi-stage backend/frontend container build
+├── docker-compose.yml       Local three-service stack
+├── Makefile                 Convenience commands for compose operations
 ├── mcp-servers/
 │   └── alarm-management/    Candidate-developed MCP server
 ├── rag/
 │   ├── documents/           Synthetic PDF corpus
 │   ├── ingestion/           Index builder and representation generation
-│   ├── index/               Local Chroma index
+│   ├── index/               Ignored local Chroma index build artifact
 │   └── retrieval/           Retriever and relevance helpers
 ├── scripts/                 Corpus and DB setup scripts
 ├── test-data/               SQLite simulator DB
-└── tests/                   Unit and integration tests
+└── tests/                   Unit, integration and E2E tests
 ```
 
 ## Technology Stack
@@ -84,7 +91,9 @@ See:
 - `docs/rag-design.md`
 - `docs/api-integration.md`
 - `docs/design-decisions.md`
+- `docs/e2e-acceptance.md`
 - `docs/known-limitations.md`
+- `docs/project-context.md`
 
 ## Configuration
 
@@ -169,6 +178,29 @@ The backend exposes:
 - `GET /api/knowledge/documents/{doc_id}/pdf`
 - `GET /api/structured/preview`
 
+## Docker Compose
+
+Validate the compose file:
+
+```bash
+docker compose config
+```
+
+Start the local stack:
+
+```bash
+docker compose up --build
+```
+
+The compose stack starts:
+
+- `alarm-api` on port `8000`,
+- `backend` on port `8080`,
+- `frontend` on port `5173`.
+
+If `rag/index/` has not been built locally, set `OPENAI_API_KEY` so the backend
+container can build the vector index during startup.
+
 ## Running the Alarm API Simulator Independently
 
 ```bash
@@ -241,12 +273,15 @@ Expected path:
 5. Final answer combines alarm evidence with cited document guidance.
 6. GUI shows the answer, citations and MCP execution trace.
 
+Automated acceptance evidence is documented in `docs/e2e-acceptance.md` and
+implemented in `tests/e2e/test_acceptance_bfp101.py`.
+
 ## Assumptions
 
 - The Alarm Management API is a simulator backed by synthetic SQLite data.
 - The document corpus is synthetic but structured like controlled plant
   documentation.
-- The local Chroma index is committed for convenience, but it can be rebuilt.
+- The local Chroma index is a rebuildable artifact and is intentionally ignored.
 - Model names are configurable by environment variable.
 
 ## Known Limitations
