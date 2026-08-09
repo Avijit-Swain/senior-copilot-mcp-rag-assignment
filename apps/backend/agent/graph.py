@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import operator
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Annotated, TypedDict
@@ -67,6 +68,9 @@ TOOL_MODEL = os.environ.get("TOOL_MODEL", "gpt-4o-mini")
 MAX_SUBQUERIES = 4          # per round
 MAX_RETRIES = 1             # retrieval rounds after the first; hard cap
 MAX_RETRIEVAL_ROUNDS = 1 + MAX_RETRIES
+MAX_RELEVANT_DOCS = int(os.environ.get("RELEVANT_DOC_TOP_K", "2"))
+RELEVANCE_MIN_SCORE = float(os.environ.get("RELEVANCE_MIN_SCORE", "0.62"))
+RELEVANCE_MIN_OVERLAP = float(os.environ.get("RELEVANCE_MIN_OVERLAP", "0.28"))
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +313,80 @@ Reply with JSON only:
  "injection_noted": "<what you ignored, or empty string>"}"""
 
 
+STOPWORDS = {
+    "a", "about", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "how", "i",
+    "in", "is", "it", "me", "of", "on", "or", "show", "the", "to", "what", "when", "where",
+    "which", "with",
+}
+
+
+def _tokens(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) > 2 and t not in STOPWORDS}
+
+
+def _doc_type_match(query: str, doc: RetrievedDocument) -> bool:
+    q = query.lower()
+    kind = doc.kind.lower()
+    return (
+        ("manual" in q and "manual" in kind)
+        or ("procedure" in q and "procedure" in kind)
+        or ("policy" in q and ("philosophy" in kind or "standard" in doc.title.lower()))
+        or ("safety" in q and "safety" in kind)
+        or ("troubleshoot" in q and "troubleshooting" in kind)
+    )
+
+
+def relevance_gate(query: str, docs: list[RetrievedDocument]) -> tuple[list[RetrievedDocument], list[dict]]:
+    """Filter unique retrieved documents before the answerer sees them.
+
+    This is deliberately local and deterministic: the gate does not send document
+    text to another model. It keeps a document if the vector hit is strong, or if
+    lexical overlap plus metadata/doc-type fit indicate a direct match.
+    """
+    query_tokens = _tokens(query)
+    judged = []
+    for doc in docs:
+        haystack = " ".join([
+            doc.doc_id,
+            doc.title,
+            doc.kind,
+            doc.site,
+            doc.unit,
+            doc.asset_class,
+            doc.matched_representation,
+        ])
+        doc_tokens = _tokens(haystack)
+        overlap = len(query_tokens & doc_tokens) / max(1, len(query_tokens))
+        metadata_match = (
+            _doc_type_match(query, doc)
+            or (doc.asset_class.lower() in query.lower())
+            or (doc.site.lower() in query.lower())
+            or (doc.unit.lower() in query.lower())
+            or (doc.doc_id.lower() in query.lower())
+        )
+        relevant = doc.score >= RELEVANCE_MIN_SCORE or (
+            overlap >= RELEVANCE_MIN_OVERLAP and metadata_match
+        )
+        judged.append({
+            "doc_id": doc.doc_id,
+            "title": doc.title,
+            "score": round(doc.score, 3),
+            "lexical_overlap": round(overlap, 3),
+            "metadata_match": metadata_match,
+            "relevant": relevant,
+            "reason": (
+                "kept by vector score"
+                if doc.score >= RELEVANCE_MIN_SCORE
+                else "kept by overlap and metadata"
+                if relevant
+                else "rejected by relevance gate"
+            ),
+        })
+
+    keep_ids = {item["doc_id"] for item in judged if item["relevant"]}
+    return [doc for doc in docs if doc.doc_id in keep_ids][:MAX_RELEVANT_DOCS], judged
+
+
 def resolve_citations(
     raw: list[dict], docs: list[RetrievedDocument]
 ) -> tuple[list[dict], list[dict]]:
@@ -324,6 +402,47 @@ def resolve_citations(
     by_id = {d.doc_id: d for d in docs}
     resolved: list[dict] = []
     dropped: list[dict] = []
+
+    def section_excerpt(doc: RetrievedDocument, section: str, title: str) -> str:
+        entries = []
+        for entry in doc.sections.split("; "):
+            if not entry:
+                continue
+            number, section_title, _page = entry.split("|")
+            entries.append((number, section_title))
+
+        start_pattern = re.compile(
+            rf"(^|\n)\s*{re.escape(section)}\s+{re.escape(title)}\s*(?:\n|$)",
+            flags=re.IGNORECASE,
+        )
+        start_match = start_pattern.search(doc.text)
+        if not start_match:
+            return ""
+
+        start = start_match.end()
+        current_index = next((i for i, item in enumerate(entries) if item[0] == section), None)
+        later_entries = entries[current_index + 1:] if current_index is not None else entries
+        end = len(doc.text)
+        for next_number, next_title in later_entries:
+            next_pattern = re.compile(
+                rf"(^|\n)\s*{re.escape(next_number)}\s+{re.escape(next_title)}\s*(?:\n|$)",
+                flags=re.IGNORECASE,
+            )
+            next_match = next_pattern.search(doc.text, start)
+            if next_match:
+                end = next_match.start()
+                break
+
+        excerpt = doc.text[start:end]
+        lines = []
+        for line in excerpt.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(doc.doc_id) or stripped.lower().startswith("page "):
+                continue
+            lines.append(stripped)
+        return re.sub(r"\s+", " ", " ".join(lines)).strip()[:900]
 
     for item in raw:
         doc_id = str(item.get("doc_id", "")).strip()
@@ -348,6 +467,7 @@ def resolve_citations(
             "source_path": doc.source_path,
             "revision": doc.revision,
             "quote": str(item.get("quote", ""))[:160],
+            "evidence_text": section_excerpt(doc, section, entry["title"]) or str(item.get("quote", ""))[:160],
         })
 
     return resolved, dropped
@@ -358,13 +478,28 @@ def retrieval_tool(task: ToolTask) -> dict:
     One node doing both halves: vector search for whole documents, then a
     single LLM call answering the sub-query from their entire contents.
     """
-    docs: list[RetrievedDocument] = search(task["subquery"])
+    candidates: list[RetrievedDocument] = search(task["subquery"])
+    docs, relevance = relevance_gate(task["subquery"], candidates)
+
+    if not candidates:
+        return {"executed": [task["subquery"]], "sub_answers": [{
+            "index": task["index"], "subquery": task["subquery"], "answered": False,
+            "answer": "No documents were retrieved for this sub-query.",
+            "citations": [], "dropped_citations": [], "documents": [], "candidate_documents": [],
+            "relevance": [], "injection_noted": "",
+        }]}
 
     if not docs:
         return {"executed": [task["subquery"]], "sub_answers": [{
             "index": task["index"], "subquery": task["subquery"], "answered": False,
-            "answer": "No documents were retrieved for this sub-query.",
-            "citations": [], "dropped_citations": [], "documents": [], "injection_noted": "",
+            "answer": "Retrieved documents did not directly match this sub-query after relevance filtering.",
+            "citations": [], "dropped_citations": [], "documents": [], "candidate_documents": [
+                {"doc_id": d.doc_id, "title": d.title, "score": round(d.score, 3),
+                 "matched_representation": d.matched_representation}
+                for d in candidates
+            ],
+            "relevance": relevance,
+            "injection_noted": "",
         }]}
 
     context = "\n\n".join(d.as_context() for d in docs)
@@ -396,6 +531,12 @@ def retrieval_tool(task: ToolTask) -> dict:
         "citations": citations,
         "dropped_citations": dropped,
         "injection_noted": str(data.get("injection_noted", "")),
+        "relevance": relevance,
+        "candidate_documents": [
+            {"doc_id": d.doc_id, "title": d.title, "score": round(d.score, 3),
+             "matched_representation": d.matched_representation}
+            for d in candidates
+        ],
         "documents": [
             {"doc_id": d.doc_id, "title": d.title, "score": round(d.score, 3),
              "matched_representation": d.matched_representation}

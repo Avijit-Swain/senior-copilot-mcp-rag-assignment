@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.backend.agent import graph as rag_graph
+from apps.backend.agent.events import emit_event
 
 
 def run_unstructured_rag(objective: str, *, parent_question: str | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -22,12 +23,22 @@ def run_unstructured_rag(objective: str, *, parent_question: str | None = None, 
         if context_bits:
             question = f"{objective}\n\nKnown structured context: " + "; ".join(context_bits)
     state = rag_graph.ask(question)
+    citations = state.get("citations", [])
+    emit_event({
+        "type": "step.completed",
+        "source": "rag",
+        "database": "rag/index/chroma.sqlite3",
+        "label": f"Completed RAG retrieval from Chroma ({len(citations)} citations)",
+        "status": "warn" if state.get("exhausted", False) else "ok",
+        "citations": len(citations),
+        "retrievalRounds": state.get("retrieval_rounds", 0),
+    })
     return {
         "tool": "unstructured_rag_agent",
         "objective": objective,
         "parent_question": parent_question,
         "answer": state.get("answer", ""),
-        "citations": state.get("citations", []),
+        "citations": citations,
         "subqueries": state.get("executed", []),
         "sub_answers": state.get("sub_answers", []),
         "retrieval_rounds": state.get("retrieval_rounds", 0),

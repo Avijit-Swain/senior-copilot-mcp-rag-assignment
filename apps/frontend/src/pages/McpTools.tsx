@@ -16,12 +16,7 @@ import { Badge, Card, EmptyState, StatusDot } from '../components/ui/primitives'
 import { JsonView } from '../components/ui/JsonView'
 import { ms } from '../lib/format'
 
-/* --------------------------------------------------------------------------
-   MCP tool discovery view.
-
-   Placeholder: the catalog is static. Wiring this up means replacing
-   MCP_TOOLS with the result of an MCP `tools/list` call.
-   -------------------------------------------------------------------------- */
+/* MCP tool catalog view for the candidate-developed alarm-management server. */
 
 export function McpTools() {
   const [query, setQuery] = useState('')
@@ -49,14 +44,14 @@ export function McpTools() {
           <div>
             <h2>Connected servers</h2>
             <p>
-              Tools below were discovered over MCP. The copilot never calls the Alarm Management API
-              directly — every source-system read goes through one of these servers.
+              Tools below are implemented by the repository MCP server. At runtime the copilot starts
+              this stdio server, discovers the tools and invokes the Alarm Management API through MCP.
             </p>
           </div>
           <div className="page__head-actions">
-            <button type="button" className="btn">
+            <button type="button" className="btn" disabled>
               <RefreshCw size={14} />
-              Re-discover
+              Discovered at runtime
             </button>
           </div>
         </div>
@@ -215,7 +210,7 @@ function ToolCard({ tool }: { tool: McpTool }) {
               Run tool
             </button>
             <span className="subtle" style={{ fontSize: 'var(--text-xs)' }}>
-              Enabled once the MCP client is connected
+              Use the chat workflow to execute tools through the master orchestrator
             </span>
           </div>
         </div>

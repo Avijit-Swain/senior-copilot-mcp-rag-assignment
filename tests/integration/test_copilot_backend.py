@@ -11,7 +11,7 @@ async def test_chat_returns_ui_answer_block(monkeypatch) -> None:
     monkeypatch.setattr(
         server,
         "ask_master",
-        lambda question: {
+        lambda question, conversation_context=None: {
             "final_answer": "Investigate BFP 101.\nCheck the discharge valve and pressure transmitter.",
             "citations": [
                 {
@@ -104,7 +104,8 @@ async def test_chat_returns_ui_answer_block(monkeypatch) -> None:
     assert answer["summary"]["priorityScore"] == 94
     assert answer["toolCalls"][0]["toolName"] == "search_assets"
     assert answer["citations"][0]["documentId"] == "BFP-OP-102"
-    assert answer["recommendations"][0]["agreement"] == "match"
+    assert answer["recommendations"][0]["agreement"] == "api-only"
+    assert answer["recommendations"][0]["citationRefs"] == []
 
 
 @pytest.mark.asyncio
@@ -114,3 +115,39 @@ async def test_chat_requires_question() -> None:
         assert response.status == 400
         payload = await response.json()
         assert payload["error"]["code"] == "missing_question"
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_previous_turn_context_to_master(monkeypatch) -> None:
+    captured = {}
+
+    def fake_ask_master(question, conversation_context=None):
+        captured["question"] = question
+        captured["conversation_context"] = conversation_context
+        return {
+            "final_answer": "Context-aware answer.",
+            "citations": [],
+            "observations": [],
+            "mcp_trace": [],
+        }
+
+    monkeypatch.setattr(server, "ask_master", fake_ask_master)
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "question": "Why is it urgent?",
+                "conversationContext": {
+                    "previousUser": "Investigate BFP-101 alarms.",
+                    "previousAssistant": "BFP-101 has an urgent Discharge Pressure High High alarm.",
+                },
+            },
+        )
+
+    assert response.status == 200
+    assert captured["question"] == "Why is it urgent?"
+    assert captured["conversation_context"] == {
+        "previous_user": "Investigate BFP-101 alarms.",
+        "previous_assistant": "BFP-101 has an urgent Discharge Pressure High High alarm.",
+    }

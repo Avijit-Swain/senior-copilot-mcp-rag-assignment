@@ -63,6 +63,7 @@ export type DocKind =
   | 'troubleshooting-guide'
   | 'safety-instruction'
   | 'alarm-philosophy'
+  | 'knowledge-article'
 
 export interface Citation {
   ref: number
@@ -71,6 +72,7 @@ export interface Citation {
   kind: DocKind
   locator: string
   snippet: string
+  evidenceText?: string
   score: number
   chunkId: string
 }
@@ -96,6 +98,37 @@ export interface RetrievedChunk {
   text: string
   score: number
   tokens: number
+}
+
+export interface KnowledgeSearchResult extends RetrievedChunk {
+  kind: DocKind
+  passedRelevance: boolean
+  relevanceReason: string
+  matchedRepresentation?: string
+}
+
+export interface KnowledgeSearchResponse {
+  query: string
+  embeddingModel: string
+  overfetch: number
+  topK: number
+  results: KnowledgeSearchResult[]
+}
+
+export interface StructuredTablePreview {
+  name: string
+  title: string
+  description: string
+  rowCount: number
+  columns: string[]
+  sampleRows: Record<string, unknown>[]
+}
+
+export interface StructuredPreviewResponse {
+  source: string
+  description: string
+  sampleSize: number
+  tables: StructuredTablePreview[]
 }
 
 /* --- MCP -------------------------------------------------------------- */
@@ -149,6 +182,22 @@ export interface McpToolCall {
   startedAt: string
 }
 
+export interface StatusStep {
+  id: string
+  source: 'mcp' | 'rag' | 'orchestrator' | 'system'
+  label: string
+  status: 'ok' | 'warn' | 'error'
+  server?: string
+  tool?: string
+  database?: string
+  durationMs?: number
+  attempts?: number
+  httpStatus?: number | null
+  citations?: number
+  retrievalRounds?: number
+  createdAt?: string
+}
+
 /* --- Conversation ----------------------------------------------------- */
 
 export interface AnswerBlock {
@@ -163,6 +212,11 @@ export interface AnswerBlock {
   lowConfidence?: { reason: string; topScore: number; floor: number }
   /** Set when part of the workflow failed but an answer was still produced. */
   degraded?: { reason: string; failedTools: string[] }
+}
+
+export interface ConversationContext {
+  previousUser?: string
+  previousAssistant?: string
 }
 
 export interface ChatMessage {

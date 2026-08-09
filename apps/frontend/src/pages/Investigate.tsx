@@ -1,57 +1,95 @@
-import { useCallback, useRef, useState } from 'react'
-import { FlaskConical, Wifi } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { FlaskConical } from 'lucide-react'
 import { ChatPanel } from '../components/investigate/ChatPanel'
 import { EvidenceRail } from '../components/investigate/EvidenceRail'
 import { Drawer } from '../components/ui/Drawer'
-import { Badge, Segmented } from '../components/ui/primitives'
-import { JsonView } from '../components/ui/JsonView'
-import type { AnswerBlock, ChatMessage, Citation } from '../lib/types'
+import { Badge } from '../components/ui/primitives'
+import type { AnswerBlock, ChatMessage, Citation, ConversationContext, StatusStep } from '../lib/types'
 import { DOC_KIND_LABEL } from '../lib/format'
-import { askCopilot } from '../lib/api'
-import {
-  DEGRADED_ANSWER,
-  INITIAL_MESSAGES,
-  LOW_CONFIDENCE_ANSWER,
-  SAMPLE_ANSWER,
-} from '../mock/conversation'
+import { askCopilotStream } from '../lib/api'
+import { INITIAL_MESSAGES } from '../mock/conversation'
 
 /* --------------------------------------------------------------------------
    Investigation workspace.
 
-   Placeholder behaviour: sending a question resolves to one of four canned
-   outcomes after a short delay. The `scenario` switch exists so every state
-   the brief asks to demonstrate — success, degraded, low-confidence and hard
-   failure — can be shown without needing the backend. Replaced by a real
-   POST /chat stream once the orchestrator lands.
+   Questions are always submitted to the live backend. Recommended questions
+   are prompt shortcuts only; no saved responses are rendered from the UI.
    -------------------------------------------------------------------------- */
-
-type Scenario = 'success' | 'degraded' | 'low-confidence' | 'error'
-
-const SCENARIOS: { value: Scenario; label: string }[] = [
-  { value: 'success', label: 'Success' },
-  { value: 'degraded', label: 'Degraded' },
-  { value: 'low-confidence', label: 'Low conf.' },
-  { value: 'error', label: 'Failure' },
-]
-
-const ANSWER_FOR: Record<Exclude<Scenario, 'error'>, AnswerBlock> = {
-  success: SAMPLE_ANSWER,
-  degraded: DEGRADED_ANSWER,
-  'low-confidence': LOW_CONFIDENCE_ANSWER,
-}
 
 let seq = 0
 const nextId = () => `m${++seq}`
+
+type CompletedTurn = {
+  id: string
+  question: string
+  answer: AnswerBlock
+  createdAt: string
+}
+
+function answerToContext(answer: AnswerBlock): string {
+  const parts = [
+    answer.headline,
+    ...answer.paragraphs,
+    answer.summary
+      ? `Structured context: asset=${answer.summary.assetId}, assetName=${answer.summary.assetName}, site=${answer.summary.site}, unit=${answer.summary.unit}, topAlarm=${answer.summary.topAlarmName}, priorityScore=${answer.summary.priorityScore}.`
+      : '',
+    answer.recommendations.length
+      ? `Recommendations: ${answer.recommendations.map((r) => r.text).join(' ')}`
+      : '',
+    answer.citations.length
+      ? `Cited documents: ${answer.citations.map((c) => `${c.documentId} ${c.locator}`).join('; ')}`
+      : '',
+  ]
+  return parts.filter(Boolean).join('\n').slice(0, 1800)
+}
+
+function previousTurnContext(messages: ChatMessage[]): ConversationContext | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const assistant = messages[i]
+    if (assistant.role !== 'assistant' || assistant.state !== 'complete' || !assistant.answer) continue
+    const user = [...messages.slice(0, i)].reverse().find((item) => item.role === 'user' && item.text)
+    if (!user?.text) continue
+    return {
+      previousUser: user.text,
+      previousAssistant: answerToContext(assistant.answer),
+    }
+  }
+  return undefined
+}
+
+function completedTurnsFromMessages(messages: ChatMessage[]): CompletedTurn[] {
+  const turns: CompletedTurn[] = []
+  let lastQuestion = ''
+
+  messages.forEach((message) => {
+    if (message.role === 'user' && message.text) {
+      lastQuestion = message.text
+      return
+    }
+
+    if (message.role === 'assistant' && message.state === 'complete' && message.answer) {
+      turns.push({
+        id: message.id,
+        question: lastQuestion || 'Previous question',
+        answer: message.answer,
+        createdAt: message.createdAt,
+      })
+    }
+  })
+
+  return turns
+}
 
 export function Investigate() {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES)
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
-  const [scenario, setScenario] = useState<Scenario>('success')
-  const [usingFallback, setUsingFallback] = useState(false)
   const [activeAnswer, setActiveAnswer] = useState<AnswerBlock | null>(null)
   const [openCitation, setOpenCitation] = useState<Citation | null>(null)
+  const [statusSteps, setStatusSteps] = useState<StatusStep[]>([])
   const timer = useRef<number | null>(null)
+  const completedTurns = useMemo(() => completedTurnsFromMessages(messages), [messages])
+  const railHistory = activeAnswer ? completedTurns.slice(0, -1) : completedTurns
 
   const submit = useCallback(
     async (text: string) => {
@@ -64,59 +102,50 @@ export function Investigate() {
       ])
       setInput('')
       setPending(true)
-      setUsingFallback(false)
+      setActiveAnswer(null)
+      setOpenCitation(null)
+      setStatusSteps([])
+      const context = previousTurnContext(messages)
 
       try {
-        const response = await askCopilot(question)
+        const response = await askCopilotStream(question, (step) => {
+          setStatusSteps((prev) => [...prev, { ...step, id: step.id ?? `step-${prev.length + 1}` }])
+        }, context)
         setActiveAnswer(response.answer)
         setMessages((prev) => [
           ...prev,
           { id: nextId(), role: 'assistant', createdAt: response.createdAt, answer: response.answer, state: 'complete' },
         ])
       } catch (error) {
-        setUsingFallback(true)
-        if (scenario === 'error') {
-          setActiveAnswer(null)
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: nextId(),
-              role: 'assistant',
-              createdAt: new Date().toISOString(),
-              state: 'error',
-              errorText:
-                error instanceof Error
-                  ? error.message
-                  : 'The backend is unavailable and the investigation could not be completed.',
-            },
-          ])
-        } else {
-          const answer = ANSWER_FOR[scenario]
-          setActiveAnswer(answer)
-          setMessages((prev) => [
-            ...prev,
-            { id: nextId(), role: 'assistant', createdAt: new Date().toISOString(), answer, state: 'complete' },
-          ])
-        }
+        setActiveAnswer(null)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'assistant',
+            createdAt: new Date().toISOString(),
+            state: 'error',
+            errorText:
+              error instanceof Error
+                ? error.message
+                : 'The backend is unavailable and the investigation could not be completed.',
+          },
+        ])
       } finally {
         setPending(false)
       }
     },
-    [pending, scenario],
+    [messages, pending],
   )
 
   const reset = () => {
     if (timer.current) window.clearTimeout(timer.current)
     setMessages([])
     setActiveAnswer(null)
+    setOpenCitation(null)
     setPending(false)
-    setUsingFallback(false)
     setInput('')
-  }
-
-  const focusCitation = (ref: number) => {
-    const c = activeAnswer?.citations.find((x) => x.ref === ref)
-    if (c) setOpenCitation(c)
+    setStatusSteps([])
   }
 
   return (
@@ -128,28 +157,27 @@ export function Investigate() {
             <span className="subtle" style={{ fontSize: 'var(--text-xs)' }}>
               Live master orchestrator
             </span>
-            <span className="spacer row" style={{ gap: 'var(--sp-2)' }}>
-              {usingFallback && (
-                <span className="subtle row" style={{ gap: 4, fontSize: 'var(--text-xs)' }}>
-                  <Wifi size={12} /> fallback demo
-                </span>
-              )}
-              <Segmented value={scenario} options={SCENARIOS} onChange={setScenario} />
-            </span>
           </div>
           <ChatPanel
             messages={messages}
             pending={pending}
+            statusSteps={statusSteps}
             input={input}
             onInput={setInput}
             onSend={() => submit(input)}
             onPreset={submit}
-            onCitation={focusCitation}
+            onCitation={setOpenCitation}
             onReset={reset}
+            onRetry={submit}
           />
         </div>
 
-        <EvidenceRail answer={activeAnswer} loading={pending} onCitationClick={setOpenCitation} />
+        <EvidenceRail
+          answer={activeAnswer}
+          history={railHistory}
+          loading={pending}
+          onCitationClick={setOpenCitation}
+        />
       </div>
 
       <Drawer
@@ -165,32 +193,18 @@ export function Investigate() {
             <div className="row row--wrap">
               <Badge tone="neutral">{DOC_KIND_LABEL[openCitation.kind]}</Badge>
               <Badge tone="ok">score {openCitation.score.toFixed(2)}</Badge>
-              <span className="mono subtle" style={{ fontSize: 'var(--text-xs)' }}>
-                {openCitation.chunkId}
-              </span>
             </div>
 
             <section className="card">
               <header className="card__head">
-                <h3 className="card__title">Retrieved passage</h3>
+                <h3 className="card__title">Evidence text</h3>
               </header>
               <div className="card__body">
-                <p style={{ fontSize: 'var(--text-md)', lineHeight: 1.65 }}>{openCitation.snippet}</p>
+                <p style={{ fontSize: 'var(--text-md)', lineHeight: 1.65 }}>
+                  {openCitation.evidenceText ?? openCitation.snippet}
+                </p>
               </div>
             </section>
-
-            <JsonView
-              label="Chunk metadata"
-              value={{
-                chunk_id: openCitation.chunkId,
-                document_id: openCitation.documentId,
-                locator: openCitation.locator,
-                kind: openCitation.kind,
-                similarity: openCitation.score,
-                retrieval: { method: 'hybrid', vector_weight: 0.7, bm25_weight: 0.3 },
-                trust: { source: 'internal-corpus', instructions_stripped: true },
-              }}
-            />
           </>
         )}
       </Drawer>

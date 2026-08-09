@@ -1,100 +1,150 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
-  BookOpen,
-  DatabaseZap,
   FileText,
+  RefreshCw,
   Search,
-  ShieldCheck,
-  Upload,
 } from 'lucide-react'
-import type { CorpusDocument } from '../lib/types'
-import { CORPUS, SAMPLE_CHUNKS } from '../mock/corpus'
-import { Badge, Card, EmptyState, StatTile } from '../components/ui/primitives'
+import type { CorpusDocument, KnowledgeSearchResult } from '../lib/types'
+import { CORPUS } from '../mock/corpus'
+import { Badge, Card, EmptyState, ErrorBox, SkeletonBlock, StatTile } from '../components/ui/primitives'
 import { Drawer } from '../components/ui/Drawer'
-import { JsonView } from '../components/ui/JsonView'
 import { DOC_KIND_LABEL } from '../lib/format'
+import { knowledgePdfUrl, searchKnowledge } from '../lib/api'
 
-/* --------------------------------------------------------------------------
-   RAG corpus view: ingestion status, document metadata and a retrieval
-   preview. Placeholder data until the ingestion pipeline writes a manifest.
-   -------------------------------------------------------------------------- */
+/* Unstructured data source view: local document metadata and live embedding retrieval preview. */
+
+const DOC_SUMMARIES: Record<string, string> = {
+  'SOP-114':
+    'Operator response for boiler feed pump low suction pressure alarms: acknowledgement, suction-side checks, safe demand reduction, recurring-event diagnosis and escalation criteria.',
+  'SOP-220':
+    'Response procedure for compressor discharge pressure high alarms at EastRefinery Unit 3, including immediate checks, anti-surge context, repeated occurrences and escalation.',
+  'MM-207':
+    'Maintenance requirements for centrifugal pumps: seal and bearing inspection, vibration and temperature monitoring, deferral rules and mandatory removal-from-service criteria.',
+  'TG-051':
+    'Troubleshooting guide for pump cavitation and NPSH deficiency, covering acoustic/vibration symptoms, alarm pattern signatures and common suction-side causes.',
+  'TG-088':
+    'Investigation guide for motor trips and electrical faults, including protection-trip context, related assets and what to verify before inspection.',
+  'SI-009':
+    'Safety instruction for isolation of rotating equipment: work permits, stopping drives, lockout/tagout, stored-energy dissipation and zero-energy verification.',
+  'AP-001':
+    'Alarm philosophy and rationalisation standard covering alarm priority, operator actionability, flood handling, nuisance alarms and acknowledgement expectations.',
+  'KB-3312':
+    'Field knowledge article on recurring pump alarms after strainer changeover. It also acts as the prompt-injection fixture used to validate untrusted retrieved content handling.',
+}
 
 export function KnowledgeBase() {
-  const [query, setQuery] = useState('')
   const [preview, setPreview] = useState('')
+  const [submittedPreview, setSubmittedPreview] = useState('')
+  const [previewResults, setPreviewResults] = useState<KnowledgeSearchResult[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [selected, setSelected] = useState<CorpusDocument | null>(null)
-
-  const docs = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return CORPUS
-    return CORPUS.filter(
-      (d) =>
-        d.title.toLowerCase().includes(q) ||
-        d.documentId.toLowerCase().includes(q) ||
-        d.tags.some((t) => t.toLowerCase().includes(q)),
-    )
-  }, [query])
 
   const indexed = CORPUS.filter((d) => d.status === 'indexed')
   const totalChunks = indexed.reduce((n, d) => n + d.chunks, 0)
-  const hasPreview = preview.trim().length > 0
+  const previewQuery = preview.trim()
+  const submittedQuery = submittedPreview.trim()
+  const hasSubmittedPreview = submittedQuery.length > 0
+  const acceptedResults = previewResults.filter((result) => result.passedRelevance)
+  const rejectedCount = previewResults.length - acceptedResults.length
+
+  async function runRetrieval() {
+    if (previewQuery.length < 3) {
+      return
+    }
+
+    setSubmittedPreview(previewQuery)
+    setPreviewResults([])
+    setPreviewLoading(true)
+    setPreviewError(null)
+
+    try {
+      const payload = await searchKnowledge(previewQuery, 5)
+      setPreviewResults(payload.results)
+    } catch (error: unknown) {
+      setPreviewError(error instanceof Error ? error.message : 'Knowledge search failed.')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
 
   return (
     <div className="page page--scroll">
       <div className="page__inner">
         <div className="page__head">
           <div>
-            <h2>Document corpus</h2>
+            <h2>Unstructured data source</h2>
             <p>
               Operating procedures, maintenance manuals, troubleshooting guides and safety instructions
-              backing the copilot’s grounded answers. Every citation resolves to a chunk in this index.
+              backing the copilot’s grounded answers. The local Chroma index contains representation
+              vectors across these 8 PDFs for the unstructured RAG agent.
             </p>
           </div>
           <div className="page__head-actions">
-            <button type="button" className="btn">
-              <Upload size={14} />
-              Add document
-            </button>
-            <button type="button" className="btn btn--primary">
-              <DatabaseZap size={14} />
-              Re-ingest corpus
+            <button type="button" className="btn" disabled>
+              <RefreshCw size={14} />
+              Rebuild via script
             </button>
           </div>
         </div>
 
         <div className="stats">
           <StatTile label="Documents" value={CORPUS.length} hint={`${indexed.length} indexed`} />
-          <StatTile label="Chunks" value={totalChunks} hint="≈ 512 tokens, 64 overlap" />
-          <StatTile label="Embedding model" value="bge-small" hint="384 dimensions" />
-          <StatTile label="Retrieval" value="Hybrid" hint="vector 0.7 · BM25 0.3" />
-          <StatTile label="Score floor" value="0.55" hint="below this → low confidence" />
+          <StatTile label="Vectors" value={totalChunks} hint="multi-representation index" />
+          <StatTile label="Embedding model" value="text-embedding-3-small" hint="OpenAI embeddings" />
+          <StatTile label="Retrieval" value="Vector" hint="unique docs after overfetch" />
         </div>
 
         <Card
-          title="Retrieval preview"
+          title="Test RAG retrieval"
           icon={<Search size={13} />}
-          actions={<Badge tone="neutral">placeholder results</Badge>}
+          actions={<Badge tone="neutral">embeddings</Badge>}
         >
           <div className="col">
-            <label className="searchbox">
-              <Search size={14} />
-              <input
-                value={preview}
-                onChange={(e) => setPreview(e.target.value)}
-                placeholder="Try: what to check on low suction pressure"
-                aria-label="Retrieval preview query"
-              />
-            </label>
+            <form
+              className="rag-search-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void runRetrieval()
+              }}
+            >
+              <label className="searchbox">
+                <Search size={14} />
+                <input
+                  value={preview}
+                  onChange={(e) => setPreview(e.target.value)}
+                  placeholder="Ask a retrieval question: pump removal from service, motor isolation..."
+                  aria-label="Retrieval preview query"
+                />
+              </label>
+              <button type="submit" className="btn btn--primary" disabled={previewQuery.length < 3 || previewLoading}>
+                <Search size={14} />
+                Search
+              </button>
+            </form>
 
-            {!hasPreview ? (
+            {!hasSubmittedPreview ? (
               <EmptyState
                 icon={<Search size={20} />}
-                title="Run a retrieval"
-                body="Enter a question to see which chunks would be retrieved, with their similarity scores and source locators."
+                title="Run the embedding pipeline"
+                body="Enter a question and click Search to embed the query, search Chroma, overfetch vectors, dedupe to unique documents and show the relevance gate."
+              />
+            ) : previewLoading ? (
+              <SkeletonBlock lines={4} />
+            ) : previewError ? (
+              <ErrorBox title="Knowledge search failed" body={previewError} />
+            ) : acceptedResults.length === 0 ? (
+              <EmptyState
+                icon={<Search size={20} />}
+                title="No embedding matches"
+                body={`No relevant results for “${submittedQuery}”. Try a more specific alarm, asset or procedure term.`}
               />
             ) : (
               <div className="col" style={{ gap: 'var(--sp-2)' }}>
-                {SAMPLE_CHUNKS.map((c) => (
+                {rejectedCount > 0 && (
+                  <div className="rag-search-note">{rejectedCount} lower-confidence result{rejectedCount === 1 ? '' : 's'} filtered out.</div>
+                )}
+                {acceptedResults.map((c) => (
                   <div className="chunk" key={c.chunkId}>
                     <div className="chunk__head">
                       <span className="chunk__id">{c.chunkId}</span>
@@ -108,7 +158,7 @@ export function KnowledgeBase() {
                     <p className="chunk__text">{c.text}</p>
                     <div className="row" style={{ marginTop: 'var(--sp-2)' }}>
                       <span className="subtle" style={{ fontSize: 'var(--text-2xs)' }}>
-                        {c.documentTitle}
+                        {c.documentTitle} · {DOC_KIND_LABEL[c.kind]}
                       </span>
                       <span className="spacer score">{c.tokens} tokens</span>
                     </div>
@@ -119,70 +169,48 @@ export function KnowledgeBase() {
           </div>
         </Card>
 
-        <div className="row row--wrap">
-          <label className="searchbox" style={{ flex: 1, minWidth: 220 }}>
-            <Search size={14} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter documents by title, id or tag…"
-              aria-label="Filter documents"
-            />
-          </label>
+        <div className="kb-library-head">
+          <div>
+            <h3>Indexed documents</h3>
+            <p>The complete corpus available to the unstructured RAG agent.</p>
+          </div>
           <Badge tone="neutral">
-            {docs.length} of {CORPUS.length}
+            {CORPUS.length} PDFs
           </Badge>
         </div>
 
-        {docs.length === 0 ? (
-          <Card>
-            <EmptyState icon={<BookOpen size={20} />} title="No documents match" body="Try a different keyword." />
-          </Card>
-        ) : (
-          <div className="col" style={{ gap: 'var(--sp-3)' }}>
-            {docs.map((d) => (
-              <button type="button" className="doccard" key={d.documentId} onClick={() => setSelected(d)}>
-                <span className="doccard__icon">
-                  <FileText size={16} />
+        <div className="kb-doc-grid">
+          {CORPUS.map((d) => (
+            <button type="button" className="doccard" key={d.documentId} onClick={() => setSelected(d)}>
+              <span className="doccard__icon">
+                <FileText size={16} />
+              </span>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <span className="row row--wrap">
+                  <span className="doccard__title">{d.title}</span>
+                  <Badge tone={d.status === 'indexed' ? 'ok' : d.status === 'pending' ? 'warn' : 'err'}>
+                    {d.status}
+                  </Badge>
                 </span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span className="row row--wrap">
-                    <span className="doccard__title">{d.title}</span>
-                    <Badge tone={d.status === 'indexed' ? 'ok' : d.status === 'pending' ? 'warn' : 'err'}>
-                      {d.status}
+                <p className="doccard__summary">{DOC_SUMMARIES[d.documentId]}</p>
+                <span className="row row--wrap" style={{ marginTop: 'var(--sp-2)' }}>
+                  <Badge tone="neutral">{DOC_KIND_LABEL[d.kind]}</Badge>
+                  {d.tags.slice(0, 4).map((t) => (
+                    <Badge tone="neutral" key={t}>
+                      {t}
                     </Badge>
-                  </span>
-                  <span className="row row--wrap" style={{ marginTop: 'var(--sp-2)' }}>
-                    <Badge tone="neutral">{DOC_KIND_LABEL[d.kind]}</Badge>
-                    {d.tags.map((t) => (
-                      <Badge tone="neutral" key={t}>
-                        {t}
-                      </Badge>
-                    ))}
-                  </span>
-                  <span className="doccard__meta">
-                    <span>{d.documentId}</span>
-                    <span>{d.version}</span>
-                    <span>{d.pages} pages</span>
-                    <span>{d.chunks} chunks</span>
-                    <span>{d.sizeKb} KB</span>
-                    <span>updated {d.updatedAt}</span>
-                  </span>
+                  ))}
                 </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <Card title="Prompt-injection handling" icon={<ShieldCheck size={13} />}>
-          <p className="muted" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.6 }}>
-            Retrieved passages are treated as untrusted data, never as instructions. Chunks are wrapped in
-            a delimited data block, imperative directives found inside document text are stripped during
-            ingestion, and the synthesis prompt is instructed to ignore any instruction that originates
-            from retrieved content. Placeholder — the detector and its unit tests land with the ingestion
-            pipeline.
-          </p>
-        </Card>
+                <span className="doccard__meta">
+                  <span>{d.documentId}</span>
+                  <span>{d.version}</span>
+                  <span>{d.pages} pages</span>
+                  <span>{d.chunks} vectors</span>
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <Drawer
@@ -199,42 +227,30 @@ export function KnowledgeBase() {
               <Badge tone="neutral">{selected.chunks} chunks</Badge>
             </div>
 
-            <Card title="Chunk preview">
-              <div className="col" style={{ gap: 'var(--sp-2)' }}>
-                {SAMPLE_CHUNKS.slice(0, 2).map((c) => (
-                  <div className="chunk" key={c.chunkId}>
-                    <div className="chunk__head">
-                      <span className="chunk__id">{c.chunkId}</span>
-                      <span className="spacer subtle" style={{ fontSize: 'var(--text-2xs)' }}>
-                        {c.locator}
-                      </span>
-                    </div>
-                    <p className="chunk__text">{c.text}</p>
-                  </div>
-                ))}
+            <Card title="What this document contains">
+              <div className="col">
+                <p className="muted" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.6 }}>
+                  {DOC_SUMMARIES[selected.documentId]}
+                </p>
+                <a
+                  className="btn btn--primary"
+                  href={knowledgePdfUrl(selected.documentId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <FileText size={14} />
+                  Open complete PDF
+                </a>
               </div>
             </Card>
 
-            <JsonView
-              label="Document metadata"
-              value={{
-                document_id: selected.documentId,
-                title: selected.title,
-                kind: selected.kind,
-                version: selected.version,
-                pages: selected.pages,
-                chunks: selected.chunks,
-                tags: selected.tags,
-                updated_at: selected.updatedAt,
-                ingestion: {
-                  extractor: 'pdfplumber',
-                  chunker: 'recursive-heading-aware',
-                  chunk_tokens: 512,
-                  overlap_tokens: 64,
-                  embedding_model: 'bge-small-en-v1.5',
-                },
-              }}
-            />
+            <Card title="Indexing behavior">
+              <p className="muted" style={{ fontSize: 'var(--text-sm)', lineHeight: 1.6 }}>
+                The preview above queries the same Chroma index used by the unstructured RAG agent.
+                It searches representation vectors, overfetches 20 matches, deduplicates to unique
+                documents, then shows the best matched representation for each document.
+              </p>
+            </Card>
           </>
         )}
       </Drawer>

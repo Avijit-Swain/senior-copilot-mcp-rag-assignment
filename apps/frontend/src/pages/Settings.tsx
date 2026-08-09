@@ -26,7 +26,7 @@ export function Settings() {
             </p>
           </div>
           <div className="page__head-actions">
-            <button type="button" className="btn">
+            <button type="button" className="btn" disabled>
               <RefreshCw size={14} />
               Re-check health
             </button>
@@ -45,7 +45,7 @@ export function Settings() {
                 {h.detail}
               </span>
               <span className="num spacer">{h.latencyMs !== null ? ms(h.latencyMs) : '—'}</span>
-              <Badge tone={h.status === 'ok' ? 'ok' : h.status === 'degraded' ? 'warn' : 'err'}>
+              <Badge tone={h.status === 'ok' ? 'ok' : h.status === 'degraded' ? 'warn' : h.status === 'down' ? 'err' : 'neutral'}>
                 {h.status}
               </Badge>
             </div>
@@ -100,24 +100,24 @@ export function Settings() {
         <Card title="Security posture" icon={<ShieldCheck size={13} />}>
           <div className="col" style={{ gap: 'var(--sp-3)' }}>
             <PostureRow
-              label="Write-operation approval"
+              label="Alarm MCP write operations"
               state="enforced"
-              detail="create_maintenance_ticket rejects any call where confirmed is not true. The GUI raises an explicit confirmation step before the orchestrator may set it."
+              detail="The candidate-developed MCP server exposes read/analysis tools only. No ticket creation or source-system mutation tool exists in this repo."
             />
             <PostureRow
               label="Retrieved-document trust boundary"
               state="enforced"
-              detail="Chunks are passed as delimited data, never as instructions. Imperative directives inside document text are stripped at ingestion."
+              detail="Retrieved documents are passed as delimited data, never instructions. The RAG answerer is required to ignore instructions embedded in corpus text."
             />
             <PostureRow
-              label="Secret redaction in logs"
+              label="Secret handling"
               state="enforced"
-              detail="Authorization headers and API keys are replaced with a fingerprint before any log line is emitted."
+              detail="OPENAI_API_KEY and ALARM_API_TOKEN stay server-side. The browser only receives masked configuration labels."
             />
             <PostureRow
               label="Tool input validation"
               state="enforced"
-              detail="Every MCP tool validates against its declared JSON Schema before the upstream call is made."
+              detail="MCP tool inputs are typed with Pydantic schemas before the upstream Alarm API request is constructed."
             />
           </div>
         </Card>

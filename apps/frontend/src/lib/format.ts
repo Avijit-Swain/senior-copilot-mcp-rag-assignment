@@ -6,6 +6,7 @@ export const DOC_KIND_LABEL: Record<DocKind, string> = {
   'troubleshooting-guide': 'Troubleshooting guide',
   'safety-instruction': 'Safety instruction',
   'alarm-philosophy': 'Alarm philosophy',
+  'knowledge-article': 'Knowledge article',
 }
 
 export function ms(value: number) {

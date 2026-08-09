@@ -7,10 +7,7 @@ import { Drawer } from '../components/ui/Drawer'
 import { TraceList } from '../components/investigate/TraceList'
 import { datetime, ms } from '../lib/format'
 
-/* --------------------------------------------------------------------------
-   Observability view. One row per copilot request, with the full MCP call
-   chain behind it. Placeholder data until structured logs are shipped.
-   -------------------------------------------------------------------------- */
+/* Observability view for persisted traces. Per-answer MCP traces appear in Investigate. */
 
 const OUTCOME_TONE = { success: 'ok', degraded: 'warn', failed: 'err' } as const
 
@@ -25,7 +22,7 @@ export function Traces() {
   })
 
   const failed = TRACES.filter((t) => t.outcome !== 'success').length
-  const avgMs = Math.round(TRACES.reduce((n, t) => n + t.totalMs, 0) / TRACES.length)
+  const avgMs = TRACES.length ? Math.round(TRACES.reduce((n, t) => n + t.totalMs, 0) / TRACES.length) : 0
   const retries = TRACES.reduce((n, t) => n + t.retryCount, 0)
 
   return (
@@ -35,12 +32,12 @@ export function Traces() {
           <div>
             <h2>Request traces</h2>
             <p>
-              Every copilot request emits a trace ID that is propagated to the MCP server and on to the
-              Alarm Management API, so a single answer can be followed end to end.
+              The current backend returns the MCP call chain with each answer in the Investigation
+              rail. A persisted cross-request trace history store is not implemented yet.
             </p>
           </div>
           <div className="page__head-actions">
-            <button type="button" className="btn">
+            <button type="button" className="btn" disabled>
               <Download size={14} />
               Export JSONL
             </button>
@@ -48,9 +45,9 @@ export function Traces() {
         </div>
 
         <div className="stats">
-          <StatTile label="Requests" value={TRACES.length} hint="last 24 hours" />
+          <StatTile label="Requests" value={TRACES.length} hint="persisted history" />
           <StatTile label="Non-success" value={failed} hint="degraded or failed" />
-          <StatTile label="Avg duration" value={ms(avgMs)} hint="end to end" />
+          <StatTile label="Avg duration" value={TRACES.length ? ms(avgMs) : '—'} hint="end to end" />
           <StatTile label="Tool retries" value={retries} hint="across all requests" />
         </div>
 
@@ -66,7 +63,15 @@ export function Traces() {
 
         <Card flush>
           {rows.length === 0 ? (
-            <EmptyState icon={<Activity size={20} />} title="No traces match" body="Try a different filter." />
+            <EmptyState
+              icon={<Activity size={20} />}
+              title={TRACES.length === 0 ? 'No persisted traces yet' : 'No traces match'}
+              body={
+                TRACES.length === 0
+                  ? 'Run an investigation to see the live MCP trace in the Evidence rail. Persisted trace history is a pending backend feature.'
+                  : 'Try a different filter.'
+              }
+            />
           ) : (
             <div className="table__scroll">
               <table className="table">

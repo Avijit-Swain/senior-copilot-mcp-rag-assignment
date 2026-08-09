@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Activity,
   BookOpen,
+  Database,
   Moon,
   MessageSquareText,
   Settings2,
@@ -14,13 +14,12 @@ import { StatusDot } from './ui/primitives'
 import { useTheme } from '../lib/theme'
 import { MCP_SERVERS, MCP_TOOLS } from '../mock/servers'
 import { CORPUS } from '../mock/corpus'
-import { TRACES } from '../mock/conversation'
 
 const NAV = [
   { to: '/', label: 'Investigate', icon: MessageSquareText, end: true, count: null },
   { to: '/mcp', label: 'MCP Tools', icon: Wrench, end: false, count: MCP_TOOLS.length },
-  { to: '/knowledge', label: 'Knowledge Base', icon: BookOpen, end: false, count: CORPUS.length },
-  { to: '/traces', label: 'Traces', icon: Activity, end: false, count: TRACES.length },
+  { to: '/knowledge', label: 'Unstructured Data', icon: BookOpen, end: false, count: CORPUS.length },
+  { to: '/structured', label: 'Structured Data', icon: Database, end: false, count: 13 },
   { to: '/settings', label: 'Settings', icon: Settings2, end: false, count: null },
 ] as const
 
@@ -29,9 +28,9 @@ const TITLES: Record<string, { title: string; sub: string }> = {
     title: 'Alarm Investigation',
     sub: 'Ask in natural language — the copilot chains MCP tools and cites site documentation',
   },
-  '/mcp': { title: 'MCP Tool Catalog', sub: 'Tools discovered from the connected MCP servers' },
-  '/knowledge': { title: 'Knowledge Base', sub: 'Document corpus, ingestion status and retrieval preview' },
-  '/traces': { title: 'Execution Traces', sub: 'Per-request observability across MCP, retrieval and the LLM' },
+  '/mcp': { title: 'MCP Tool Catalog', sub: 'Repository MCP server and runtime-discovered tool contracts' },
+  '/knowledge': { title: 'Unstructured Data Source', sub: 'Indexed PDF corpus and representative RAG retrieval evidence' },
+  '/structured': { title: 'Structured Data Source', sub: 'SQLite alarm-management tables available through the structured MCP agent' },
   '/settings': { title: 'Settings', sub: 'Runtime configuration and service health' },
 }
 
@@ -39,16 +38,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { theme, toggle } = useTheme()
   const { pathname } = useLocation()
   const heading = TITLES[pathname] ?? TITLES['/']
-  const allOk = MCP_SERVERS.every((s) => s.status === 'ok')
 
   return (
     <div className="shell">
       <nav className="sidebar">
         <div className="sidebar__brand">
-          <AbbLogo height={16} />
+          <AbbLogo height={24} />
           <span className="sidebar__brand-text">
             <span className="sidebar__brand-title">Alarm Copilot</span>
-            <span className="sidebar__brand-sub">Procedure Guidance</span>
           </span>
         </div>
 
@@ -86,8 +83,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar__actions">
             <span className="chip">
-              <StatusDot status={allOk ? 'ok' : 'degraded'} pulse={!allOk} />
-              {allOk ? 'All services healthy' : 'Degraded'}
+              <StatusDot status="ok" />
+              MCP catalog ready
             </span>
             <button
               type="button"
