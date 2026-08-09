@@ -1,0 +1,82 @@
+services:
+  alarm-api:
+    build:
+      context: .
+      target: backend
+    command: >
+      sh -c "python scripts/init_alarm_db.py --reset
+      && python apps/backend/alarm_api/server.py --host 0.0.0.0 --port 8000"
+    environment:
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      ALARM_DB_PATH: /app/test-data/alarm_management.sqlite3
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  backend:
+    build:
+      context: .
+      target: backend
+    command: >
+      sh -c "if [ ! -f test-data/alarm_management.sqlite3 ]; then
+      python scripts/init_alarm_db.py --reset;
+      fi
+      && if [ ! -f rag/index/chroma.sqlite3 ]; then
+      if [ -z \"$$OPENAI_API_KEY\" ]; then
+      echo 'rag/index is missing and OPENAI_API_KEY is not set; set OPENAI_API_KEY or build the index before starting compose.';
+      exit 1;
+      fi;
+      python rag/ingestion/build_index.py --reset;
+      fi
+      && python apps/backend/server.py --host 0.0.0.0 --port 8080"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      MASTER_MODEL: ${MASTER_MODEL:-gpt-5.6-terra}
+      STRUCTURED_SUPERVISOR_MODEL: ${STRUCTURED_SUPERVISOR_MODEL:-${MASTER_MODEL:-gpt-5.6-terra}}
+      SUPERVISOR_MODEL: ${SUPERVISOR_MODEL:-gpt-4.1}
+      TOOL_MODEL: ${TOOL_MODEL:-gpt-4o-mini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      ALARM_API_BASE_URL: http://alarm-api:8000
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      ALARM_DB_PATH: /app/test-data/alarm_management.sqlite3
+      MCP_SERVER_COMMAND: python
+      MCP_SERVER_ARGS: -m alarm_mcp.server
+      MCP_TOOL_TIMEOUT_MS: ${MCP_TOOL_TIMEOUT_MS:-15000}
+      MCP_TOOL_MAX_RETRIES: ${MCP_TOOL_MAX_RETRIES:-2}
+      VECTOR_INDEX_PATH: /app/rag/index
+      DOCUMENT_PATH: /app/rag/documents
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-3}
+      RETRIEVAL_OVERFETCH: ${RETRIEVAL_OVERFETCH:-20}
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8080
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+    ports:
+      - "8080:8080"
+    depends_on:
+      alarm-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+      args:
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://127.0.0.1:8080}
+    environment:
+      VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://127.0.0.1:8080}
+      PORT: 5173
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
