@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend and MCP tests
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/mcp-servers/alarm-management:${{ github.workspace }}
+      ALARM_API_TOKEN: demo-token
+      ALARM_DB_PATH: ${{ github.workspace }}/test-data/alarm_management.sqlite3
+      OPENAI_API_KEY: test-key
+      MASTER_MODEL: gpt-4.1
+      STRUCTURED_SUPERVISOR_MODEL: gpt-4.1
+      SUPERVISOR_MODEL: gpt-4.1
+      TOOL_MODEL: gpt-4o-mini
+      EMBEDDING_MODEL: text-embedding-3-small
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Initialize simulator database
+        run: python scripts/init_alarm_db.py --reset
+
+      - name: Run backend, MCP, and orchestration tests
+        run: pytest tests -q
+
+  frontend:
+    name: Frontend typecheck and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        env:
+          VITE_BACKEND_URL: http://127.0.0.1:8080
+        run: npm run build
+
+  packaging:
+    name: Packaging config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate docker compose config
+        env:
+          OPENAI_API_KEY: ""
+        run: docker compose config
+
+  rag-eval:
+    name: RAG retrieval evaluation
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RUN_RAG_EVAL: ${{ vars.RUN_RAG_EVAL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Decide whether to run retrieval evaluation
+        id: rag-config
+        run: |
+          if [ "$RUN_RAG_EVAL" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping optional RAG eval. Set repository variable RUN_RAG_EVAL=true and OPENAI_API_KEY secret to enable it."
+          elif [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY secret is required when RUN_RAG_EVAL=true." >&2
+            exit 1
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.rag-config.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        if: steps.rag-config.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build RAG index
+        if: steps.rag-config.outputs.skip != 'true'
+        run: python rag/ingestion/build_index.py --reset
+
+      - name: Run retrieval evaluation
+        if: steps.rag-config.outputs.skip != 'true'
+        run: python rag/tests/eval_retrieval.py
