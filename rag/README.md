@@ -106,7 +106,7 @@ regenerating — do not edit the PDFs directly.
 | Stage | State |
 | --- | --- |
 | Document corpus | ✅ 8 PDFs, extraction verified |
-| Ingestion pipeline (`rag/ingestion/`) | ⬜ Not started |
-| Retrieval service (`rag/retrieval/`) | ⬜ Not started |
-| Retrieval tests (`rag/tests/`) | ⬜ Not started |
-| `docs/rag-design.md` | ⬜ Not started |
+| Ingestion pipeline (`rag/ingestion/`) | ✅ Builds local Chroma index |
+| Retrieval service (`rag/retrieval/`) | ✅ Overfetch, document dedupe and relevance gate |
+| Retrieval tests (`rag/tests/`) | ✅ Retrieval evaluation script |
+| `docs/rag-design.md` | ✅ Added |

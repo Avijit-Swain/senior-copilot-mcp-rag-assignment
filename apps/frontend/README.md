@@ -1,8 +1,10 @@
-# Frontend — Alarm Investigation and Procedure Guidance Copilot
+# Frontend
 
-React + TypeScript GUI for the copilot. This is currently the **UI shell**: every
-screen the assignment brief calls for is built and navigable, driven by
-placeholder data. No network calls are made yet.
+React + TypeScript GUI for Alarm Copilot.
+
+The app is no longer a placeholder-only shell. The investigation page calls the
+copilot backend, streams status events, displays final grounded answers, and
+renders current and previous-turn evidence/MCP traces in the right rail.
 
 ## Run
 
@@ -13,73 +15,59 @@ npm run build      # type-check + production bundle
 npm run typecheck
 ```
 
-Configuration comes from the environment — see `.env.example`. Only
-`VITE_`-prefixed variables reach the browser bundle, so no secret belongs there.
+Set `VITE_BACKEND_URL` only when the backend is not served from the same origin.
+No secret should be exposed through Vite/browser variables.
 
-## Screens
+## Routes
 
-| Route | Purpose | Brief requirement covered |
-| --- | --- | --- |
-| `/` | Investigation workspace — chat plus evidence rail | Chat interaction, alarm summary panel, likely causes, recommendations, citations, MCP trace, raw request/response, error and retry visibility |
-| `/mcp` | MCP tool catalog | Tool discovery view, typed input/output schemas, auth scope, timeout and retry policy, error mapping, example invocation and response |
-| `/knowledge` | RAG corpus | Document metadata, ingestion status, chunk preview, retrieval preview with scores, prompt-injection posture |
-| `/traces` | Observability | Request/conversation/trace IDs, tool durations and outcomes, retry counts, retrieval scores, LLM latency |
-| `/settings` | Configuration | Environment variables with masked secrets, service health, security posture |
+| Route | Purpose |
+| --- | --- |
+| `/` | Investigation workspace with chat, streaming status, citations, recommendations, evidence and MCP trace |
+| `/mcp` | MCP server/tool catalog view |
+| `/knowledge` | Unstructured data source: document corpus and live retrieval preview |
+| `/structured` | Structured data source: table inventory and representative data points |
+| `/settings` | Runtime settings and service health |
 
-The investigation page has a **demo scenario switch** (Success / Degraded /
-Low confidence / Failure). The brief requires demonstrating one successful and
-one failure or degraded scenario; this makes all four reachable without needing
-the backend up.
+## Backend Integration
 
-## Layout
+The frontend uses `src/lib/api.ts`:
 
-```
+- `askCopilotStream` for `POST /api/chat/stream`,
+- `searchKnowledge` for `GET /api/knowledge/search`,
+- `getStructuredPreview` for `GET /api/structured/preview`,
+- `knowledgePdfUrl` for document PDF links.
+
+Recommended questions are prompt shortcuts only. They do not render saved
+responses; each click submits a live request.
+
+## UI Structure
+
+```text
 src/
 ├── components/
-│   ├── AbbLogo.tsx           inline ABB wordmark (no external asset)
-│   ├── AppShell.tsx          sidebar, topbar, theme toggle
-│   ├── investigate/          chat panel, evidence rail, MCP trace list
-│   └── ui/                   badges, cards, drawer, JSON viewer, states
+│   ├── AppShell.tsx
+│   ├── investigate/
+│   │   ├── ChatPanel.tsx
+│   │   ├── EvidenceRail.tsx
+│   │   └── TraceList.tsx
+│   └── ui/
 ├── lib/
-│   ├── types.ts              domain contracts shared across pages
-│   ├── theme.tsx             theme provider (single source of truth)
-│   └── format.ts             duration, percentage and date formatting
-├── mock/                     placeholder data — the only thing to replace
-├── pages/                    one file per route
-└── styles/                   tokens → base → layout → components → features
+│   ├── api.ts
+│   ├── format.ts
+│   ├── theme.tsx
+│   └── types.ts
+├── mock/
+├── pages/
+└── styles/
 ```
 
-## Replacing the placeholders
+## Design Notes
 
-Components read from typed contracts in `src/lib/types.ts`, never from the mock
-modules directly beyond a single import at the page level. Wiring up the backend
-means swapping the data source, not rewriting components:
-
-| Placeholder | Replace with |
-| --- | --- |
-| `mock/servers.ts` → `MCP_TOOLS`, `MCP_SERVERS` | MCP `tools/list` response |
-| `mock/corpus.ts` → `CORPUS`, `SAMPLE_CHUNKS` | Ingestion manifest and retrieval API |
-| `mock/conversation.ts` → `SAMPLE_ANSWER` and variants | Streaming `POST /chat` response |
-| `mock/conversation.ts` → `TRACES` | Structured log query |
-| `mock/conversation.ts` → `ENV_SETTINGS`, `HEALTH_CHECKS` | `GET /config`, `GET /health` |
-
-The `setTimeout` in `pages/Investigate.tsx` stands in for the orchestrator call.
-
-## Design notes
-
-- **Theming** — light and dark are both first-class. Tokens are defined once per
-  theme in `styles/tokens.css`; components never branch on theme. The active
-  theme is written to `<html data-theme>` before first paint to avoid a flash.
-- **ABB brand** — the wordmark is inlined as SVG and brand red (`#ff000f`) is the
-  single accent. Severity, status and score colours are deliberately distinct
-  from it so "critical" never reads as "branded".
-- **JSON viewer** — serialised output is HTML-escaped before tokens are wrapped
-  for highlighting, so document or API content cannot inject markup.
-
-## Known gaps
-
-- No tests yet. Component and interaction tests land with the backend wiring.
-- Responsive breakpoints are written (`1180px`, `1000px`, `640px`) but have only
-  been verified at desktop width.
-- `Run tool` on the MCP catalog and the ingestion buttons on the knowledge base
-  are inert until their endpoints exist.
+- The main chat stays readable; evidence and MCP trace details live in the right
+  rail.
+- Previous turns are shown as collapsed sections in the right rail, not inside
+  chat history.
+- Citation clicks open the relevant evidence text.
+- Voice input uses browser speech recognition when available.
+- The structured and unstructured tabs preview what each agent can access
+  without becoming full admin/database tools.

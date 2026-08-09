@@ -2,6 +2,36 @@
 
 The Alarm Management MCP server lives in `mcp-servers/alarm-management` and wraps the candidate-built Alarm Management API simulator. All tools propagate `trace_id`, `x-client-id`, and `x-metadata-tag` headers when supplied through the `trace` input object. Authentication uses `ALARM_API_TOKEN`; secrets are never returned in tool responses.
 
+## Running Independently
+
+Start the Alarm Management API simulator first:
+
+```bash
+.venv/bin/python apps/backend/alarm_api/server.py --host 127.0.0.1 --port 8000
+```
+
+Then start the MCP server:
+
+```bash
+PYTHONPATH=mcp-servers/alarm-management \
+ALARM_API_BASE_URL=http://127.0.0.1:8000 \
+ALARM_API_TOKEN=replace-me \
+.venv/bin/python -m alarm_mcp.server
+```
+
+The copilot backend discovers these tool contracts through its MCP client path
+and invokes them from the structured LangGraph agent.
+
+## Shared Behavior
+
+- Input schemas are typed with Pydantic models.
+- Invalid inputs are rejected before API invocation.
+- API errors are mapped into structured MCP errors.
+- Timeouts use `MCP_TOOL_TIMEOUT_MS`, default `15000`.
+- Retries use `MCP_TOOL_MAX_RETRIES`, default `2`.
+- Trace metadata is propagated when supplied in the `trace` input.
+- Authentication is read from environment variables and not exposed in outputs.
+
 ## `search_assets`
 
 Purpose: Resolve natural-language asset names, tags, or asset types to simulator asset IDs.
