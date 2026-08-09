@@ -1,0 +1,23 @@
+[run]
+branch = True
+source =
+    apps/backend
+    mcp-servers/alarm-management/alarm_mcp
+omit =
+    */__init__.py
+    */tests/*
+    tests/*
+    rag/index/*
+    scripts/*
+    .venv/*
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise SystemExit
+
+[xml]
+output = coverage.xml

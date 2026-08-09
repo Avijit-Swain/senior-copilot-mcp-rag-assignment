@@ -27,6 +27,7 @@ Build an integrated Alarm Investigation and Procedure Guidance Copilot that:
 | Frontend | React + TypeScript investigation workspace with evidence and MCP trace rails |
 | Context retention | Follow-up questions can use previous user/assistant context |
 | Tests | Unit, integration and E2E acceptance tests under `tests/` |
+| Coverage | Configured with `pytest-cov`; `make coverage` writes `coverage.xml` |
 | Packaging | `Dockerfile`, `docker-compose.yml` and `Makefile` included |
 | CI | GitHub Actions workflow included in `.github/workflows/ci.yml` |
 
@@ -73,4 +74,8 @@ npm run build
 
 ```bash
 docker compose config
+```
+
+```bash
+make coverage
 ```

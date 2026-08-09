@@ -15,5 +15,11 @@ PYTHONPATH="$PWD/mcp-servers/alarm-management:$PWD" \
 .venv/bin/python -m pytest tests -q
 ```
 
+Run the suite with coverage:
+
+```bash
+make coverage
+```
+
 The optional retrieval evaluation remains in `rag/tests/` because it validates
 the RAG corpus/index rather than the backend API surface.

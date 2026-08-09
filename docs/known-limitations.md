@@ -27,10 +27,12 @@ missing core architecture.
 
 ## Coverage Report
 
-- There is no committed coverage report.
-- Tests exist for API simulator behavior, MCP client behavior, orchestration
-  routing, context routing and backend integration, but coverage has not been
-  packaged as an artifact.
+- Coverage is configured through `.coveragerc`.
+- `make coverage` runs the Python test suite with terminal and XML coverage
+  output.
+- CI uploads `coverage.xml` as an artifact for review.
+- The generated report is intentionally ignored by Git so local runs do not add
+  report churn to commits.
 
 ## Deployment
 

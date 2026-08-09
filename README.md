@@ -79,7 +79,7 @@ with citations and MCP traceability.
 | MCP | Python MCP SDK, stdio server |
 | Structured source | SQLite-backed Alarm Management API simulator |
 | RAG | PDF extraction, multi-representation Chroma index, OpenAI embeddings |
-| Tests | pytest, pytest-asyncio, TypeScript compiler, Vite build |
+| Tests | pytest, pytest-asyncio, pytest-cov, TypeScript compiler, Vite build |
 
 ## Architecture
 
@@ -239,6 +239,14 @@ Backend and orchestration tests:
 PYTHONPATH="$PWD/mcp-servers/alarm-management:$PWD" \
 .venv/bin/python -m pytest tests -q
 ```
+
+Coverage report:
+
+```bash
+make coverage
+```
+
+This writes a terminal coverage summary and `coverage.xml`.
 
 Retrieval evaluation:
 
